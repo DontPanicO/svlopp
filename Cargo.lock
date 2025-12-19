@@ -47,6 +47,7 @@ dependencies = [
 name = "svloop"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "libc",
  "rustix",
 ]
