@@ -1,0 +1,37 @@
+use std::os::fd::{BorrowedFd, OwnedFd};
+
+use rustix::{
+    io,
+    time::{
+        timerfd_create, timerfd_settime, Itimerspec, TimerfdClockId,
+        TimerfdFlags, TimerfdTimerFlags, Timespec,
+    },
+};
+
+pub fn create_timerfd_1s_periodic() -> io::Result<OwnedFd> {
+    let fd = timerfd_create(
+        TimerfdClockId::Monotonic,
+        TimerfdFlags::CLOEXEC | TimerfdFlags::NONBLOCK,
+    )?;
+    let new_value = Itimerspec {
+        it_interval: Timespec {
+            tv_sec: 1,
+            tv_nsec: 0,
+        },
+        it_value: Timespec {
+            tv_sec: 1,
+            tv_nsec: 0,
+        },
+    };
+    timerfd_settime(&fd, TimerfdTimerFlags::empty(), &new_value)?;
+    Ok(fd)
+}
+
+pub fn read_timerfd(fd: BorrowedFd<'_>) -> io::Result<u64> {
+    let mut buf = [0u8; 8];
+    let n = io::read(fd, &mut buf)?;
+    if n != 8 {
+        return Err(io::Errno::IO);
+    }
+    Ok(u64::from_ne_bytes(buf))
+}
