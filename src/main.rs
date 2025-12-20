@@ -3,7 +3,6 @@ use std::os::fd::AsFd;
 use rustix::event::epoll;
 
 use svloop::{
-    cvt,
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
         SignalfdFlags,
