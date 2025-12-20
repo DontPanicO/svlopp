@@ -11,6 +11,7 @@ impl IsRetCode for i32 {
         self == -1
     }
 }
+
 impl IsRetCode for isize {
     #[inline(always)]
     fn is_error(self) -> bool {
