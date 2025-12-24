@@ -1,8 +1,9 @@
-use std::os::fd::AsFd;
+use std::{ffi::CString, os::fd::AsFd};
 
 use rustix::event::epoll;
 
 use svloop::{
+    service::{Service, ServiceIdGen, ServiceRegistry},
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
         SignalfdFlags,
@@ -38,6 +39,25 @@ fn main() -> std::io::Result<()> {
         epoll::EventData::new_u64(ID_TFD),
         epoll::EventFlags::IN,
     )?;
+
+    let mut service_id_generator = ServiceIdGen::new();
+    let mut service_registry = ServiceRegistry::new();
+    service_registry.insert_service(Service::new(
+        service_id_generator.nextval().unwrap(),
+        "ping_google".to_owned(),
+        vec![
+            CString::new("ping").unwrap(),
+            CString::new("8.8.8.8").unwrap(),
+        ],
+    ));
+    service_registry.insert_service(Service::new(
+        service_id_generator.nextval().unwrap(),
+        "ping_cloudfare".to_owned(),
+        vec![
+            CString::new("ping").unwrap(),
+            CString::new("1.1.1.1").unwrap(),
+        ],
+    ));
 
     eprintln!(
         "supervisor core started (epoll + signalfd + timerfd). Ctrl+C to exit."
