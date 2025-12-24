@@ -3,7 +3,9 @@ use std::{ffi::CString, os::fd::AsFd};
 use rustix::event::epoll;
 
 use svloop::{
-    service::{start_service, Service, ServiceIdGen, ServiceRegistry},
+    service::{
+        handle_sigchld, start_service, Service, ServiceIdGen, ServiceRegistry,
+    },
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
         SignalfdFlags,
@@ -100,6 +102,9 @@ fn main() -> std::io::Result<()> {
                     for info in read_signalfd_all(sfd.as_fd())? {
                         let signo = info.signal();
                         eprintln!("signal: {}", signo);
+                        if signo.cast_signed() == libc::SIGCHLD {
+                            handle_sigchld(&mut service_registry)?;
+                        }
                         if signo.cast_signed() == libc::SIGINT
                             || signo.cast_signed() == libc::SIGTERM
                         {
