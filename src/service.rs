@@ -2,7 +2,11 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::io;
 
-use rustix::process::{wait, Pid, WaitOptions};
+use rustix::{
+    fs::{open, OFlags},
+    process::{wait, Pid, WaitOptions},
+    stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
+};
 
 /// All possible states in which a service
 /// can be at any moment
@@ -70,6 +74,18 @@ impl Service {
     }
 }
 
+/// Redirect stdio fds to /dev/null.
+///
+/// Used to avoid polluting the main process output with the one of its
+/// children
+fn redirect_stdio_to_devnull() -> rustix::io::Result<()> {
+    let fd = open("/dev/null", OFlags::RDWR, rustix::fs::Mode::empty())?;
+    dup2_stdin(&fd)?;
+    dup2_stdout(&fd)?;
+    dup2_stderr(&fd)?;
+    Ok(())
+}
+
 /// Start a new service.
 ///
 /// a successful call to `fork` return `0` in the child process
@@ -77,9 +93,14 @@ impl Service {
 /// indicate an error.
 /// `execvp` is used as we don't know the exact lenght of `argv`
 /// and of course we want it to check for the executable in path
+///
+/// TODO: Currently we're redirecting `/dev/std*` to dev null
+/// in the child processes, but we have to decide what to do
+/// with it
 pub fn start_service(svc: &mut Service) -> io::Result<()> {
     match unsafe { libc::fork() } {
         0 => {
+            redirect_stdio_to_devnull()?;
             let argv: Vec<*const libc::c_char> = svc
                 .argv
                 .iter()
@@ -196,7 +217,7 @@ impl ServiceIdGen {
 /// until status informtion are available for *any* child process, `waitpid` enable
 /// the caller to specify options. Here we're using `WNOHANG` to avoid actually blocking
 /// if no status information is available immediately when calling. In this way
-/// `waitpid(-1, ...)` differs completely from `wait`.
+/// `waitpid(-1, ...)` differs completely from `wait`
 pub fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
     loop {
         match wait(WaitOptions::NOHANG) {
