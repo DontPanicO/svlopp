@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::io;
 
-use rustix::process::Pid;
+use rustix::process::{wait, Pid, WaitOptions};
 
 /// All possible states in which a service
 /// can be at any moment
@@ -185,4 +185,51 @@ impl ServiceIdGen {
         self.0 = self.0.checked_add(1)?;
         Some(value)
     }
+}
+
+/// SIGCHLD handler
+///
+/// **N.B.** `rustix::process::wait` correspond to `waitpid(-1, ...)`, the syscall
+/// used - with that particular value as pid - to wait for *any* child process and
+/// shall not be confused with a call to `wait`.
+/// While `waitpid(-1, ...)` is equivalent to `wait` in the fact that it blocks
+/// until status informtion are available for *any* child process, `waitpid` enable
+/// the caller to specify options. Here we're using `WNOHANG` to avoid actually blocking
+/// if no status information is available immediately when calling. In this way
+/// `waitpid(-1, ...)` differs completely from `wait`.
+pub fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
+    loop {
+        match wait(WaitOptions::NOHANG) {
+            Ok(Some((pid, status))) => {
+                if let Some(svc) = registry.take_by_pid(pid) {
+                    svc.pid = None;
+                    svc.state = ServiceState::Stopped;
+                    if status.exited() {
+                        eprintln!(
+                            "service '{}' exited normally with code {}",
+                            svc.name,
+                            status.exit_status().unwrap_or(-1)
+                        );
+                    } else if status.signaled() {
+                        eprintln!(
+                            "service '{}' terminated by signal {}",
+                            svc.name,
+                            status.terminating_signal().unwrap()
+                        )
+                    } else {
+                        eprintln!(
+                            "service '{}' exited with status {:?}",
+                            svc.name, status
+                        )
+                    }
+                } else {
+                    eprintln!("`waitpid` got unknown pid: {}", pid);
+                }
+            }
+            Ok(None) => break, // no more childs ready
+            Err(rustix::io::Errno::CHILD) => break, // no child
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
 }
