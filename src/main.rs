@@ -3,7 +3,7 @@ use std::{ffi::CString, os::fd::AsFd};
 use rustix::event::epoll;
 
 use svloop::{
-    service::{Service, ServiceIdGen, ServiceRegistry},
+    service::{start_service, Service, ServiceIdGen, ServiceRegistry},
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
         SignalfdFlags,
@@ -58,6 +58,25 @@ fn main() -> std::io::Result<()> {
             CString::new("1.1.1.1").unwrap(),
         ],
     ));
+
+    for svc_id in 0..2 {
+        if let Some(svc) = service_registry.service_mut(svc_id) {
+            match start_service(svc) {
+                Ok(()) => {
+                    eprintln!(
+                        "Started service '{}' with pid {:?}",
+                        svc.name, svc.pid
+                    );
+                    if let Some(pid) = svc.pid {
+                        service_registry.register_pid(pid, svc_id);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to start service '{}': {}", svc.name, e)
+                }
+            }
+        }
+    }
 
     eprintln!(
         "supervisor core started (epoll + signalfd + timerfd). Ctrl+C to exit."
