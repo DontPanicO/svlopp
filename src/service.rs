@@ -162,3 +162,27 @@ impl ServiceRegistry {
         self.services_map.get_mut(&svc_id)
     }
 }
+
+/// Used to generate progressive service ids.
+///
+/// Service ids are `u64`, but we want to support
+/// up to 65536 services hence this holds an
+/// `u16`
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ServiceIdGen(u16);
+
+impl ServiceIdGen {
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the currently holded value - zero extended
+    /// to 64-bit - and increment it by one
+    #[inline(always)]
+    pub fn nextval(&mut self) -> Option<u64> {
+        let value = self.0 as u64;
+        self.0 = self.0.checked_add(1)?;
+        Some(value)
+    }
+}
