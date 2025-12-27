@@ -4,7 +4,7 @@ use std::io;
 
 use rustix::{
     fs::{open, OFlags},
-    process::{wait, Pid, WaitOptions},
+    process::{kill_process, wait, Pid, Signal, WaitOptions},
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
 
@@ -124,6 +124,24 @@ pub fn start_service(svc: &mut Service) -> io::Result<()> {
     }
 }
 
+/// Stop a service by calling `kill(pid, SIGTERM)` and marks it as
+/// stopping by setting state to `ServiceState::Stopping`.
+pub fn stop_service(svc: &mut Service) -> io::Result<()> {
+    if svc.state != ServiceState::Running {
+        return Ok(());
+    }
+    let pid = match svc.pid {
+        Some(p) => p,
+        None => {
+            eprintln!("service '{}' is running but has no pid", svc.name,);
+            return Ok(());
+        }
+    };
+    kill_process(pid, Signal::TERM)?;
+    svc.state = ServiceState::Stopping;
+    Ok(())
+}
+
 /// The services registry.
 ///
 /// Holds all the services in the form of
@@ -181,6 +199,20 @@ impl ServiceRegistry {
     pub fn take_by_pid(&mut self, pid: Pid) -> Option<&mut Service> {
         let svc_id = self.pids_map.remove(&pid)?;
         self.services_map.get_mut(&svc_id)
+    }
+
+    #[inline(always)]
+    pub fn iter_services(
+        &self,
+    ) -> std::collections::hash_map::Values<'_, u64, Service> {
+        self.services_map.values()
+    }
+
+    #[inline(always)]
+    pub fn iter_services_mut(
+        &mut self,
+    ) -> std::collections::hash_map::ValuesMut<'_, u64, Service> {
+        self.services_map.values_mut()
     }
 }
 
