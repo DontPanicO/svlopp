@@ -4,7 +4,8 @@ use rustix::event::epoll;
 
 use svloop::{
     service::{
-        handle_sigchld, start_service, Service, ServiceIdGen, ServiceRegistry,
+        handle_sigchld, start_service, stop_service, Service, ServiceIdGen,
+        ServiceRegistry, ServiceState,
     },
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
@@ -66,7 +67,7 @@ fn main() -> std::io::Result<()> {
             match start_service(svc) {
                 Ok(()) => {
                     eprintln!(
-                        "Started service '{}' with pid {:?}",
+                        "started service '{}' with pid {:?}",
                         svc.name, svc.pid
                     );
                     if let Some(pid) = svc.pid {
@@ -74,7 +75,7 @@ fn main() -> std::io::Result<()> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Failed to start service '{}': {}", svc.name, e)
+                    eprintln!("failed to start service '{}': {}", svc.name, e)
                 }
             }
         }
@@ -104,12 +105,21 @@ fn main() -> std::io::Result<()> {
                         eprintln!("signal: {}", signo);
                         if signo.cast_signed() == libc::SIGCHLD {
                             handle_sigchld(&mut service_registry)?;
+                            if service_registry
+                                .iter_services()
+                                .all(|svc| svc.state == ServiceState::Stopped)
+                            {
+                                eprintln!("all services stopped, exiting");
+                                break 'outer;
+                            }
                         }
                         if signo.cast_signed() == libc::SIGINT
                             || signo.cast_signed() == libc::SIGTERM
                         {
-                            eprintln!("Shutdown requested");
-                            break 'outer;
+                            eprintln!("shutdown requested");
+                            for svc in service_registry.iter_services_mut() {
+                                stop_service(svc)?;
+                            }
                         }
                     }
                 }
