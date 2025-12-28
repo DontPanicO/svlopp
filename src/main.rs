@@ -12,12 +12,15 @@ use svloop::{
         SignalfdFlags,
     },
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
+    SupervisorState,
 };
 
 const ID_SFD: u64 = 1;
 const ID_TFD: u64 = 2;
 
 fn main() -> std::io::Result<()> {
+    let mut sv_state = SupervisorState::default();
+
     let mut sigset = SigSet::empty()?;
     sigset.add(libc::SIGCHLD)?;
     sigset.add(libc::SIGTERM)?;
@@ -105,9 +108,10 @@ fn main() -> std::io::Result<()> {
                         eprintln!("signal: {}", signo);
                         if signo.cast_signed() == libc::SIGCHLD {
                             handle_sigchld(&mut service_registry)?;
-                            if service_registry
-                                .iter_services()
-                                .all(|svc| svc.state == ServiceState::Stopped)
+                            if (sv_state == SupervisorState::ShutdownRequested)
+                                && service_registry.iter_services().all(|svc| {
+                                    svc.state == ServiceState::Stopped
+                                })
                             {
                                 eprintln!("all services stopped, exiting");
                                 break 'outer;
@@ -116,9 +120,20 @@ fn main() -> std::io::Result<()> {
                         if signo.cast_signed() == libc::SIGINT
                             || signo.cast_signed() == libc::SIGTERM
                         {
-                            eprintln!("shutdown requested");
-                            for svc in service_registry.iter_services_mut() {
-                                stop_service(svc)?;
+                            if sv_state == SupervisorState::Running {
+                                eprintln!("shutdown requested");
+                                sv_state = SupervisorState::ShutdownRequested;
+                                for svc in service_registry.iter_services_mut()
+                                {
+                                    stop_service(svc)?;
+                                }
+                            }
+                            if service_registry
+                                .iter_services()
+                                .all(|svc| svc.state == ServiceState::Stopped)
+                            {
+                                eprintln!("all services stopped, exiting");
+                                break 'outer;
                             }
                         }
                     }
