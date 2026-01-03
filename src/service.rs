@@ -8,17 +8,7 @@ use rustix::{
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
 
-#[inline(always)]
-fn is_crash_signal(sig: i32) -> bool {
-    matches!(
-        sig,
-        libc::SIGSEGV
-            | libc::SIGABRT
-            | libc::SIGFPE
-            | libc::SIGILL
-            | libc::SIGBUS
-    )
-}
+use crate::utils::is_crash_signal;
 
 /// Process exit reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

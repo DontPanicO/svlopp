@@ -3,7 +3,7 @@ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use bitflags::bitflags;
 use rustix::io;
 
-use crate::cvt;
+use crate::utils::cvt;
 
 bitflags! {
     #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
