@@ -4,19 +4,105 @@ use std::io;
 
 use rustix::{
     fs::{open, OFlags},
-    process::{kill_process, wait, Pid, Signal, WaitOptions},
+    process::{kill_process, wait, Pid, Signal, WaitOptions, WaitStatus},
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
 
+#[inline(always)]
+fn is_crash_signal(sig: i32) -> bool {
+    matches!(
+        sig,
+        libc::SIGSEGV
+            | libc::SIGABRT
+            | libc::SIGFPE
+            | libc::SIGILL
+            | libc::SIGBUS
+    )
+}
+
+/// Process exit reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ExitReason {
+    /// Process exited with a status code
+    Exited(i32),
+    /// Process signaled
+    Signaled(i32),
+}
+
+impl ExitReason {
+    pub fn from_wait_status(status: WaitStatus) -> Option<Self> {
+        if status.exited() {
+            Some(Self::Exited(status.exit_status().unwrap_or(-1)))
+        } else if status.signaled() {
+            Some(Self::Signaled(status.terminating_signal().unwrap()))
+        } else {
+            None
+        }
+    }
+}
+
+/// Service stop reason. It differs from `ExitReason` by being
+/// specific to supervisor logic and abstraction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ServiceStopReason {
+    /// Service has never started
+    #[default]
+    NeverStarted,
+    /// Service has been gracefully terminated by
+    /// the supervisor
+    SupervisorTerminated,
+    /// Service successfully completed (i.e.
+    /// exited with code == 0)
+    Success,
+    /// Service completed with an error (i.e.
+    /// exited with code != 0)
+    Error(i32),
+    /// Service terminated due to a fault signal
+    Crashed(i32),
+    /// Service terminated due to any other signal.
+    /// Notice that "any other signal" may be handled
+    /// by the child process, which may call `exit`,
+    /// leading to either `Self::Success` or
+    /// `Self::Error(code)`
+    Killed(i32),
+}
+
+impl ServiceStopReason {
+    pub fn from_exit_reason_and_service_state(
+        exit_reason: ExitReason,
+        svc_state: ServiceState,
+    ) -> Self {
+        match exit_reason {
+            ExitReason::Exited(code) => {
+                if matches!(svc_state, ServiceState::Stopping) {
+                    Self::SupervisorTerminated
+                } else if code == 0 {
+                    Self::Success
+                } else {
+                    Self::Error(code)
+                }
+            }
+            ExitReason::Signaled(sig) => {
+                if is_crash_signal(sig) {
+                    Self::Crashed(sig)
+                } else if matches!(svc_state, ServiceState::Stopping) {
+                    Self::SupervisorTerminated
+                } else {
+                    Self::Killed(sig)
+                }
+            }
+        }
+    }
+}
+
 /// All possible states in which a service
 /// can be at any moment
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ServiceState {
     /// The service is stopped.
     /// This is the initial state for all
     /// services.
-    #[default]
-    Stopped,
+    Stopped(ServiceStopReason),
     /// The service is starting.
     /// This is the state in which a stopped
     /// service is put after receiving a
@@ -31,6 +117,12 @@ pub enum ServiceState {
     /// from different actors and in
     /// different forms.
     Stopping,
+}
+
+impl Default for ServiceState {
+    fn default() -> ServiceState {
+        ServiceState::Stopped(ServiceStopReason::NeverStarted)
+    }
 }
 
 /// A minimal service representation.
@@ -56,7 +148,7 @@ impl Service {
             name,
             argv,
             pid: None,
-            state: ServiceState::Stopped,
+            state: ServiceState::Stopped(ServiceStopReason::NeverStarted),
         }
     }
 
@@ -71,6 +163,11 @@ impl Service {
     #[inline(always)]
     pub fn set_state(&mut self, state: ServiceState) {
         self.state = state;
+    }
+
+    #[inline(always)]
+    pub fn is_stopped(&self) -> bool {
+        matches!(self.state, ServiceState::Stopped(_))
     }
 }
 
@@ -114,7 +211,7 @@ pub fn start_service(svc: &mut Service) -> io::Result<()> {
             };
         }
         raw if raw > 0 => {
-            // safe as we just check that the pid is > 0
+            // safe as we just checked that the pid is > 0
             let pid = unsafe { Pid::from_raw_unchecked(raw) };
             svc.pid = Some(pid);
             svc.state = ServiceState::Running;
@@ -192,6 +289,13 @@ impl ServiceRegistry {
         self.pids_map.insert(pid, svc_id);
     }
 
+    /// Get a shared reference to the service corresponding to pid.
+    #[inline(always)]
+    pub fn get_by_pid(&self, pid: Pid) -> Option<&Service> {
+        let svc_id = self.pids_map.get(&pid)?;
+        self.services_map.get(svc_id)
+    }
+
     /// Remove `pid` from the `pid -> service_id` map if exists and
     /// return a mutable reference to the correspondind `Service` in
     /// the `service_id -> service` map
@@ -254,29 +358,30 @@ pub fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
     loop {
         match wait(WaitOptions::NOHANG) {
             Ok(Some((pid, status))) => {
-                if let Some(svc) = registry.take_by_pid(pid) {
-                    svc.pid = None;
-                    svc.state = ServiceState::Stopped;
-                    if status.exited() {
-                        eprintln!(
-                            "service '{}' exited normally with code {}",
-                            svc.name,
-                            status.exit_status().unwrap_or(-1)
-                        );
-                    } else if status.signaled() {
-                        eprintln!(
-                            "service '{}' terminated by signal {}",
-                            svc.name,
-                            status.terminating_signal().unwrap()
-                        )
-                    } else {
-                        eprintln!(
-                            "service '{}' exited with status {:?}",
-                            svc.name, status
-                        )
+                if let Some(exit_reason) = ExitReason::from_wait_status(status)
+                {
+                    match registry.take_by_pid(pid) {
+                        Some(svc) => {
+                            svc.pid = None;
+                            let stop_reason = ServiceStopReason::from_exit_reason_and_service_state(exit_reason, svc.state);
+                            svc.state = ServiceState::Stopped(stop_reason);
+                            eprintln!(
+                                "service '{}' exit: {:?}",
+                                svc.name, exit_reason,
+                            )
+                        }
+                        None => eprintln!("`waitpid` got unknown pid: {}", pid),
                     }
                 } else {
-                    eprintln!("`waitpid` got unknown pid: {}", pid);
+                    match registry.get_by_pid(pid) {
+                        Some(svc) => {
+                            eprintln!(
+                                "service '{}' exited with status {:?}",
+                                svc.name, status
+                            )
+                        }
+                        None => eprintln!("`waitpid` got unknown pid: {}", pid),
+                    }
                 }
             }
             Ok(None) => break, // no more childs ready
