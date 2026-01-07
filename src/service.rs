@@ -7,6 +7,7 @@ use rustix::{
     process::{kill_process, wait, Pid, Signal, WaitOptions, WaitStatus},
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
+use serde::Deserialize;
 
 use crate::utils::is_crash_signal;
 
@@ -115,6 +116,36 @@ impl Default for ServiceState {
     }
 }
 
+/// Service configuration
+#[derive(Debug, Deserialize, Clone)]
+pub struct ServiceConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+impl ServiceConfig {
+    fn build_svc_argv(&self) -> io::Result<Vec<CString>> {
+        let mut argv = Vec::with_capacity(self.args.len() + 1);
+        argv.push(CString::new(self.command.as_str()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "command contains NUL byte",
+            )
+        })?);
+        for arg in &self.args {
+            argv.push(CString::new(arg.as_str()).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "argument contains NUL byte",
+                )
+            })?);
+        }
+        Ok(argv)
+    }
+}
+
 /// A minimal service representation.
 /// TODO: whether we expect `pid` to be `Some`
 /// it's strictly related to the service state.
@@ -124,7 +155,7 @@ impl Default for ServiceState {
 #[derive(Debug, Clone)]
 pub struct Service {
     pub id: u64,
-    pub name: String,
+    pub config: ServiceConfig,
     pub argv: Vec<CString>,
     pub pid: Option<Pid>,
     pub state: ServiceState,
@@ -132,14 +163,20 @@ pub struct Service {
 
 impl Service {
     #[inline(always)]
-    pub fn new(id: u64, name: String, argv: Vec<CString>) -> Self {
-        Self {
+    pub fn new(id: u64, config: ServiceConfig) -> io::Result<Self> {
+        let argv = config.build_svc_argv()?;
+        Ok(Self {
             id,
-            name,
+            config,
             argv,
             pid: None,
             state: ServiceState::Stopped(ServiceStopReason::NeverStarted),
-        }
+        })
+    }
+
+    #[inline(always)]
+    pub fn name(&self) -> &str {
+        &self.config.name
     }
 
     #[inline(always)]
@@ -220,7 +257,7 @@ pub fn stop_service(svc: &mut Service) -> io::Result<()> {
     let pid = match svc.pid {
         Some(p) => p,
         None => {
-            eprintln!("service '{}' is running but has no pid", svc.name,);
+            eprintln!("service '{}' is running but has no pid", svc.name(),);
             return Ok(());
         }
     };
@@ -357,7 +394,8 @@ pub fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
                             svc.state = ServiceState::Stopped(stop_reason);
                             eprintln!(
                                 "service '{}' exit: {:?}",
-                                svc.name, exit_reason,
+                                svc.name(),
+                                exit_reason,
                             )
                         }
                         None => eprintln!("`waitpid` got unknown pid: {}", pid),
@@ -367,7 +405,8 @@ pub fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
                         Some(svc) => {
                             eprintln!(
                                 "service '{}' exited with status {:?}",
-                                svc.name, status
+                                svc.name(),
+                                status
                             )
                         }
                         None => eprintln!("`waitpid` got unknown pid: {}", pid),

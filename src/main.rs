@@ -1,18 +1,18 @@
-use std::{ffi::CString, os::fd::AsFd};
+use std::os::fd::AsFd;
 
 use rustix::event::epoll;
 
 use svloop::{
     service::{
-        handle_sigchld, start_service, stop_service, Service, ServiceIdGen,
-        ServiceRegistry,
+        handle_sigchld, start_service, stop_service, Service, ServiceConfig,
+        ServiceIdGen, ServiceRegistry,
     },
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
         SignalfdFlags,
     },
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
-    SupervisorState,
+    ServicesConfigFile, SupervisorState,
 };
 
 const ID_SFD: u64 = 1;
@@ -48,22 +48,17 @@ fn main() -> std::io::Result<()> {
 
     let mut service_id_generator = ServiceIdGen::new();
     let mut service_registry = ServiceRegistry::new();
-    service_registry.insert_service(Service::new(
-        service_id_generator.nextval().unwrap(),
-        "ping_google".to_owned(),
-        vec![
-            CString::new("ping").unwrap(),
-            CString::new("8.8.8.8").unwrap(),
-        ],
-    ));
-    service_registry.insert_service(Service::new(
-        service_id_generator.nextval().unwrap(),
-        "ping_cloudfare".to_owned(),
-        vec![
-            CString::new("ping").unwrap(),
-            CString::new("1.1.1.1").unwrap(),
-        ],
-    ));
+
+    let services_file_content =
+        std::fs::read_to_string("./.example/services.toml")?;
+    let service_configs: ServicesConfigFile =
+        toml::from_str(&services_file_content).unwrap();
+    for cfg in service_configs.service {
+        service_registry.insert_service(Service::new(
+            service_id_generator.nextval().unwrap(),
+            cfg,
+        )?);
+    }
 
     for svc_id in 0..2 {
         if let Some(svc) = service_registry.service_mut(svc_id) {
@@ -71,14 +66,15 @@ fn main() -> std::io::Result<()> {
                 Ok(()) => {
                     eprintln!(
                         "started service '{}' with pid {:?}",
-                        svc.name, svc.pid
+                        svc.name(),
+                        svc.pid
                     );
                     if let Some(pid) = svc.pid {
                         service_registry.register_pid(pid, svc_id);
                     }
                 }
                 Err(e) => {
-                    eprintln!("failed to start service '{}': {}", svc.name, e)
+                    eprintln!("failed to start service '{}': {}", svc.name(), e)
                 }
             }
         }

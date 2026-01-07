@@ -3,6 +3,8 @@ pub mod signalfd;
 pub mod timerfd;
 pub mod utils;
 
+use serde::Deserialize;
+
 /// The status of the supervisor. When a shutdown is requested
 /// the supervior may not stop immediately since it has to
 /// take care of any alive child process. For this reason
@@ -14,4 +16,10 @@ pub enum SupervisorState {
     #[default]
     Running,
     ShutdownRequested,
+}
+
+/// The service config file
+#[derive(Debug, Deserialize)]
+pub struct ServicesConfigFile {
+    pub service: Vec<service::ServiceConfig>,
 }
