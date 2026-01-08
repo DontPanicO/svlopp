@@ -12,7 +12,7 @@ use svloop::{
         SignalfdFlags,
     },
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
-    ServicesConfigFile, SupervisorState,
+    ServiceConfigData, SupervisorState,
 };
 
 const ID_SFD: u64 = 1;
@@ -48,12 +48,10 @@ fn main() -> std::io::Result<()> {
 
     let mut service_id_generator = ServiceIdGen::new();
     let mut service_registry = ServiceRegistry::new();
+    let service_configs =
+        ServiceConfigData::from_config_file("./.example/services.toml")?;
 
-    let services_file_content =
-        std::fs::read_to_string("./.example/services.toml")?;
-    let service_configs: ServicesConfigFile =
-        toml::from_str(&services_file_content).unwrap();
-    for cfg in service_configs.service {
+    for cfg in service_configs.services {
         service_registry.insert_service(Service::new(
             service_id_generator.nextval().unwrap(),
             cfg,

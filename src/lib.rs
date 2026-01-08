@@ -3,6 +3,8 @@ pub mod signalfd;
 pub mod timerfd;
 pub mod utils;
 
+use std::io;
+
 use serde::Deserialize;
 
 /// The status of the supervisor. When a shutdown is requested
@@ -18,8 +20,17 @@ pub enum SupervisorState {
     ShutdownRequested,
 }
 
-/// The service config file
+/// The set of services config
 #[derive(Debug, Deserialize)]
-pub struct ServicesConfigFile {
-    pub service: Vec<service::ServiceConfig>,
+pub struct ServiceConfigData {
+    #[serde(rename = "service")]
+    pub services: Vec<service::ServiceConfig>,
+}
+
+impl ServiceConfigData {
+    #[inline(always)]
+    pub fn from_config_file(path: &str) -> io::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        toml::from_str(&content).map_err(|e| io::Error::other(e.message()))
+    }
 }
