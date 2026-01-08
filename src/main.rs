@@ -4,8 +4,8 @@ use rustix::event::epoll;
 
 use svloop::{
     service::{
-        handle_sigchld, start_service, stop_service, Service, ServiceConfig,
-        ServiceIdGen, ServiceRegistry,
+        handle_sigchld, start_service, stop_service, Service, ServiceIdGen,
+        ServiceRegistry,
     },
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
@@ -106,7 +106,7 @@ fn main() -> std::io::Result<()> {
                             handle_sigchld(&mut service_registry)?;
                             if (sv_state == SupervisorState::ShutdownRequested)
                                 && service_registry
-                                    .iter_services()
+                                    .services()
                                     .all(|svc| svc.is_stopped())
                             {
                                 eprintln!("all services stopped, exiting");
@@ -119,13 +119,12 @@ fn main() -> std::io::Result<()> {
                             if sv_state == SupervisorState::Running {
                                 eprintln!("shutdown requested");
                                 sv_state = SupervisorState::ShutdownRequested;
-                                for svc in service_registry.iter_services_mut()
-                                {
+                                for svc in service_registry.services_mut() {
                                     stop_service(svc)?;
                                 }
                             }
                             if service_registry
-                                .iter_services()
+                                .services()
                                 .all(|svc| svc.is_stopped())
                             {
                                 eprintln!("all services stopped, exiting");

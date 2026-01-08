@@ -333,14 +333,14 @@ impl ServiceRegistry {
     }
 
     #[inline(always)]
-    pub fn iter_services(
+    pub fn services(
         &self,
     ) -> std::collections::hash_map::Values<'_, u64, Service> {
         self.services_map.values()
     }
 
     #[inline(always)]
-    pub fn iter_services_mut(
+    pub fn services_mut(
         &mut self,
     ) -> std::collections::hash_map::ValuesMut<'_, u64, Service> {
         self.services_map.values_mut()
