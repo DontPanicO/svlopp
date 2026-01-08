@@ -58,8 +58,8 @@ fn main() -> std::io::Result<()> {
     let mut service_registry = ServiceRegistry::new();
     let service_configs = ServiceConfigData::from_config_file(&cfg_file_path)?;
 
-    for (i, cfg) in service_configs.services.into_iter().enumerate() {
-        service_registry.insert_service(Service::new(i as u64, cfg)?);
+    for (i, (name, cfg)) in service_configs.services.into_iter().enumerate() {
+        service_registry.insert_service(Service::new(i as u64, name, cfg)?);
     }
 
     for svc_id in 0..(service_registry.services().len() as u64) {
@@ -68,15 +68,14 @@ fn main() -> std::io::Result<()> {
                 Ok(()) => {
                     eprintln!(
                         "started service '{}' with pid {:?}",
-                        svc.name(),
-                        svc.pid
+                        svc.name, svc.pid
                     );
                     if let Some(pid) = svc.pid {
                         service_registry.register_pid(pid, svc_id);
                     }
                 }
                 Err(e) => {
-                    eprintln!("failed to start service '{}': {}", svc.name(), e)
+                    eprintln!("failed to start service '{}': {}", svc.name, e)
                 }
             }
         }
