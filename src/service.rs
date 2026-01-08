@@ -146,6 +146,26 @@ impl ServiceConfig {
     }
 }
 
+/// The content of the services config file.
+///
+/// As of now, we are working with a single toml file
+/// to define service configs. This struct is used
+/// to deserialized a `Vec<ServiceConfig>` from that
+/// file
+#[derive(Debug, Deserialize)]
+pub struct ServiceConfigData {
+    #[serde(rename = "service")]
+    pub services: Vec<ServiceConfig>,
+}
+
+impl ServiceConfigData {
+    #[inline(always)]
+    pub fn from_config_file(path: &str) -> io::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        toml::from_str(&content).map_err(|e| io::Error::other(e.message()))
+    }
+}
+
 /// A minimal service representation.
 /// TODO: whether we expect `pid` to be `Some`
 /// it's strictly related to the service state.

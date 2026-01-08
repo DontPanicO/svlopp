@@ -4,14 +4,15 @@ use rustix::event::epoll;
 
 use svloop::{
     service::{
-        handle_sigchld, start_service, stop_service, Service, ServiceRegistry,
+        handle_sigchld, start_service, stop_service, Service,
+        ServiceConfigData, ServiceRegistry,
     },
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
         SignalfdFlags,
     },
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
-    ServiceConfigData, SupervisorState,
+    SupervisorState,
 };
 
 const ID_SFD: u64 = 1;
