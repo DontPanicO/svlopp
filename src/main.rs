@@ -60,7 +60,7 @@ fn main() -> std::io::Result<()> {
         )?);
     }
 
-    for svc_id in 0..2 {
+    for svc_id in 0..(service_registry.services().len() as u64) {
         if let Some(svc) = service_registry.service_mut(svc_id) {
             match start_service(svc) {
                 Ok(()) => {
