@@ -1,4 +1,4 @@
-use std::os::fd::AsFd;
+use std::{env, os::fd::AsFd};
 
 use rustix::event::epoll;
 
@@ -19,6 +19,15 @@ const ID_SFD: u64 = 1;
 const ID_TFD: u64 = 2;
 
 fn main() -> std::io::Result<()> {
+    let mut args = env::args().skip(1);
+    let cfg_file_path = match args.next() {
+        Some(path) => path,
+        None => {
+            eprintln!("usage: svlopp <config_file>");
+            std::process::exit(1);
+        }
+    };
+
     let mut sv_state = SupervisorState::default();
 
     let mut sigset = SigSet::empty()?;
@@ -47,8 +56,7 @@ fn main() -> std::io::Result<()> {
     )?;
 
     let mut service_registry = ServiceRegistry::new();
-    let service_configs =
-        ServiceConfigData::from_config_file("./.example/services.toml")?;
+    let service_configs = ServiceConfigData::from_config_file(&cfg_file_path)?;
 
     for (i, cfg) in service_configs.services.into_iter().enumerate() {
         service_registry.insert_service(Service::new(i as u64, cfg)?);
