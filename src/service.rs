@@ -9,7 +9,10 @@ use rustix::{
 };
 use serde::Deserialize;
 
-use crate::utils::is_crash_signal;
+use crate::{
+    signalfd::{set_thread_signal_mask, SigSet},
+    utils::is_crash_signal,
+};
 
 /// Process exit reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -240,9 +243,10 @@ fn redirect_stdio_to_devnull() -> rustix::io::Result<()> {
 /// TODO: Currently we're redirecting `/dev/std*` to dev null
 /// in the child processes, but we have to decide what to do
 /// with it
-pub fn start_service(svc: &mut Service) -> io::Result<()> {
+pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
     match unsafe { libc::fork() } {
         0 => {
+            set_thread_signal_mask(sigset)?;
             redirect_stdio_to_devnull()?;
             let argv: Vec<*const libc::c_char> = svc
                 .argv

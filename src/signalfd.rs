@@ -32,6 +32,21 @@ impl SigSet {
         }
     }
 
+    /// Create a new `SigSet` from the current
+    /// thread signal mask
+    #[inline(always)]
+    pub fn current() -> io::Result<Self> {
+        unsafe {
+            let mut raw = std::mem::zeroed();
+            cvt(libc::sigprocmask(
+                libc::SIG_SETMASK,
+                std::ptr::null(),
+                &mut raw,
+            ))?;
+            Ok(Self { raw })
+        }
+    }
+
     #[inline(always)]
     pub fn add(&mut self, signal: i32) -> io::Result<()> {
         unsafe { cvt(libc::sigaddset(&mut self.raw, signal))? };
@@ -48,6 +63,17 @@ pub fn block_thread_signals(sigset: &SigSet) -> io::Result<()> {
     unsafe {
         cvt(libc::sigprocmask(
             libc::SIG_BLOCK,
+            sigset.as_ptr(),
+            std::ptr::null_mut(),
+        ))?;
+    }
+    Ok(())
+}
+
+pub fn set_thread_signal_mask(sigset: &SigSet) -> io::Result<()> {
+    unsafe {
+        cvt(libc::sigprocmask(
+            libc::SIG_SETMASK,
             sigset.as_ptr(),
             std::ptr::null_mut(),
         ))?;

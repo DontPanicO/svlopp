@@ -30,6 +30,7 @@ fn main() -> std::io::Result<()> {
 
     let mut sv_state = SupervisorState::default();
 
+    let original_sigset = SigSet::current()?;
     let mut sigset = SigSet::empty()?;
     sigset.add(libc::SIGCHLD)?;
     sigset.add(libc::SIGTERM)?;
@@ -64,7 +65,7 @@ fn main() -> std::io::Result<()> {
 
     for svc_id in 0..(service_registry.services().len() as u64) {
         if let Some(svc) = service_registry.service_mut(svc_id) {
-            match start_service(svc) {
+            match start_service(svc, &original_sigset) {
                 Ok(()) => {
                     eprintln!(
                         "started service '{}' with pid {:?}",
