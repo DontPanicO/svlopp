@@ -120,7 +120,7 @@ impl Default for ServiceState {
 }
 
 /// Service configuration
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct ServiceConfig {
     pub command: String,
     #[serde(default)]
@@ -152,8 +152,9 @@ impl ServiceConfig {
 ///
 /// As of now, we are working with a single toml file
 /// to define service configs. This struct is used
-/// to deserialized a `Vec<ServiceConfig>` from that
-/// file
+/// to deserialized a `HashMap<String, ServiceConfig>` from that
+/// file, where the string represent the service name.
+#[repr(transparent)]
 #[derive(Debug, Deserialize)]
 pub struct ServiceConfigData {
     pub services: HashMap<String, ServiceConfig>,
@@ -323,6 +324,13 @@ impl ServiceRegistry {
         self.services_map.insert(svc.id, svc);
     }
 
+    /// Get a shared reference to the service correspondig to
+    /// `svc_id` if it exists in the `service_id -> service` map
+    #[inline(always)]
+    pub fn service(&self, svc_id: u64) -> Option<&Service> {
+        self.services_map.get(&svc_id)
+    }
+
     /// Get a mutable reference to the service corresponding to
     /// `svc_id` if it exists in the `service_id -> service` map
     #[inline(always)]
@@ -368,6 +376,35 @@ impl ServiceRegistry {
     ) -> std::collections::hash_map::ValuesMut<'_, u64, Service> {
         self.services_map.values_mut()
     }
+}
+
+pub fn reload_services(
+    registry: &mut ServiceRegistry,
+    cfg_path: &str,
+) -> io::Result<()> {
+    let service_configs = ServiceConfigData::from_config_file(cfg_path)?;
+    let mut service_ids = HashMap::new();
+    for svc in registry.services() {
+        service_ids.insert(svc.name.clone(), svc.id);
+    }
+    for name in service_ids.keys() {
+        if !service_configs.services.contains_key(name) {
+            eprintln!("removig service {}", name);
+        }
+    }
+
+    for (name, cfg) in service_configs.services.iter() {
+        match service_ids.get(name) {
+            None => eprintln!("adding new service {}", name),
+            Some(&svc_id) => {
+                let svc = registry.service(svc_id).unwrap();
+                if svc.config != *cfg {
+                    eprintln!("updating service {}", name);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// SIGCHLD handler

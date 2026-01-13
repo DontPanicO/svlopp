@@ -4,7 +4,7 @@ use rustix::event::epoll;
 
 use svloop::{
     service::{
-        handle_sigchld, start_service, stop_service, Service,
+        handle_sigchld, reload_services, start_service, stop_service, Service,
         ServiceConfigData, ServiceRegistry,
     },
     signalfd::{
@@ -32,6 +32,7 @@ fn main() -> std::io::Result<()> {
 
     let original_sigset = SigSet::current()?;
     let mut sigset = SigSet::empty()?;
+    sigset.add(libc::SIGHUP)?;
     sigset.add(libc::SIGCHLD)?;
     sigset.add(libc::SIGTERM)?;
     sigset.add(libc::SIGINT)?;
@@ -104,6 +105,22 @@ fn main() -> std::io::Result<()> {
                     for info in read_signalfd_all(sfd.as_fd())? {
                         let signo = info.signal();
                         eprintln!("signal: {}", signo);
+                        if (signo.cast_signed() == libc::SIGHUP)
+                            && (sv_state == SupervisorState::Running)
+                        {
+                            eprintln!("reload requested (SIGHUP)");
+                            match reload_services(
+                                &mut service_registry,
+                                &cfg_file_path,
+                            ) {
+                                Ok(()) => {
+                                    eprintln!("finished reloading services")
+                                }
+                                Err(_) => eprintln!(
+                                    "failed reading new configuration"
+                                ),
+                            }
+                        }
                         if signo.cast_signed() == libc::SIGCHLD {
                             handle_sigchld(&mut service_registry)?;
                             if (sv_state == SupervisorState::ShutdownRequested)
