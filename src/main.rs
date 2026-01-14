@@ -5,7 +5,7 @@ use rustix::event::epoll;
 use svloop::{
     service::{
         handle_sigchld, reload_services, start_service, stop_service, Service,
-        ServiceConfigData, ServiceRegistry,
+        ServiceConfigData, ServiceIdGen, ServiceRegistry,
     },
     signalfd::{
         block_thread_signals, read_signalfd_all, signalfd, SigSet,
@@ -57,11 +57,16 @@ fn main() -> std::io::Result<()> {
         epoll::EventFlags::IN,
     )?;
 
+    let mut service_id_generator = ServiceIdGen::new();
     let mut service_registry = ServiceRegistry::new();
     let service_configs = ServiceConfigData::from_config_file(&cfg_file_path)?;
 
-    for (i, (name, cfg)) in service_configs.services.into_iter().enumerate() {
-        service_registry.insert_service(Service::new(i as u64, name, cfg)?);
+    for (name, cfg) in service_configs.services.into_iter() {
+        service_registry.insert_service(Service::new(
+            service_id_generator.nextval().unwrap(),
+            name,
+            cfg,
+        )?);
     }
 
     for svc_id in 0..(service_registry.services().len() as u64) {

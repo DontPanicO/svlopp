@@ -168,6 +168,33 @@ impl ServiceConfigData {
     }
 }
 
+/// Generate progressive service ids.
+///
+/// Service ids are `u64`, but we want to support
+/// up to just 65336 services for now hence this
+/// holds an `u16`.
+#[repr(transparent)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ServiceIdGen(u16);
+
+impl ServiceIdGen {
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns an `Option` with the currently holded
+    /// value - zero extended to 64-bit - and increment
+    /// it by one. If incrementing causes an overflo and increment
+    /// it by one. If incrementing causes an overflow
+    /// it returns `None`
+    #[inline(always)]
+    pub fn nextval(&mut self) -> Option<u64> {
+        let value = self.0 as u64;
+        self.0 = self.0.checked_add(1)?;
+        Some(value)
+    }
+}
 /// A minimal service representation.
 /// TODO: whether we expect `pid` to be `Some`
 /// it's strictly related to the service state.
@@ -378,6 +405,7 @@ impl ServiceRegistry {
     }
 }
 
+/// Parse the configuration file and apply changes
 pub fn reload_services(
     registry: &mut ServiceRegistry,
     cfg_path: &str,
