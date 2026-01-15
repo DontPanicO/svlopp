@@ -190,6 +190,21 @@ impl ServiceIdGen {
         Some(value)
     }
 }
+
+/// Pending action to be executed when a service stops.
+///
+/// Used during reload to defer actions for services that are
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ServicePendingAction {
+    /// No pending action to perform
+    #[default]
+    None,
+    /// Service have to be started again
+    Restart,
+    /// Service has to be removed
+    Remove,
+}
+
 /// A minimal service representation.
 /// TODO: whether we expect `pid` to be `Some`
 /// it's strictly related to the service state.
@@ -204,6 +219,7 @@ pub struct Service {
     pub argv: Vec<CString>,
     pub pid: Option<Pid>,
     pub state: ServiceState,
+    pub pending_action: ServicePendingAction,
 }
 
 impl Service {
@@ -221,6 +237,7 @@ impl Service {
             argv,
             pid: None,
             state: ServiceState::Stopped(ServiceStopReason::NeverStarted),
+            pending_action: ServicePendingAction::None,
         })
     }
 
