@@ -406,6 +406,27 @@ impl ServiceRegistry {
 }
 
 /// Parse the configuration file and apply changes
+///
+/// For new services (not present in the registry, but present in the new
+/// config), insert it in the registry and starts it.
+///
+/// For removed services (present in the registry, but not present in the
+/// new config):
+/// * If the service state is `ServiceState::Stopped(_)`: remove the service
+///   from the registry immediately.
+/// * If `ServiceState::Running`: call `stop_service` and mark for removal so
+///   that the SIGCHLD handler can remove it once stopped.
+/// * If `ServiceState::Stopping`: just mark for removal.
+///
+/// For changed services (present in both the registry and the new config
+/// but with different configurations):
+/// * If the service state is `ServiceState::Stopped(_)`: update the config,
+///   rebuild argv, then start it.
+/// * If `ServiceState::Running`: call `stop_service`, store new config and
+///   mark for restart so that when the SIGCHLD handler reaps the process it
+///   can restart it.
+/// * if `ServiceState::Stopping`: just store the new config and mark for
+///   restart.
 pub fn reload_services(
     registry: &mut ServiceRegistry,
     cfg_path: &str,
