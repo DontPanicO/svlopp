@@ -258,6 +258,14 @@ impl Service {
     pub fn is_stopped(&self) -> bool {
         matches!(self.state, ServiceState::Stopped(_))
     }
+
+    /// Update the service config and rebuild argv
+    #[inline(always)]
+    pub fn update_config(&mut self, config: ServiceConfig) -> io::Result<()> {
+        self.argv = config.build_svc_argv()?;
+        self.config = config;
+        Ok(())
+    }
 }
 
 /// Redirect stdio fds to /dev/null.
@@ -415,6 +423,11 @@ impl ServiceRegistry {
     ) -> std::collections::hash_map::ValuesMut<'_, u64, Service> {
         self.services_map.values_mut()
     }
+
+    #[inline(always)]
+    pub fn remove_service(&mut self, svc_id: u64) -> Option<Service> {
+        self.services_map.remove(&svc_id)
+    }
 }
 
 /// Parse the configuration file and apply changes
@@ -442,25 +455,92 @@ impl ServiceRegistry {
 pub fn reload_services(
     registry: &mut ServiceRegistry,
     cfg_path: &str,
+    id_gen: &mut ServiceIdGen,
+    sigset: &SigSet,
 ) -> io::Result<()> {
     let service_configs = ServiceConfigData::from_config_file(cfg_path)?;
     let mut service_ids = HashMap::new();
     for svc in registry.services() {
         service_ids.insert(svc.name.clone(), svc.id);
     }
-    for name in service_ids.keys() {
+    for (name, &svc_id) in service_ids.iter() {
         if !service_configs.services.contains_key(name) {
-            eprintln!("removig service {}", name);
+            let mut remove_now = false;
+            if let Some(svc) = registry.service_mut(svc_id) {
+                match svc.state {
+                    ServiceState::Stopped(_) => {
+                        eprintln!("removing stopped service '{}'", name);
+                        svc.pending_action = ServicePendingAction::None;
+                        remove_now = true;
+                    }
+                    ServiceState::Stopping => {
+                        eprintln!("stopping service '{}' for removal", name);
+                        svc.pending_action = ServicePendingAction::Remove;
+                    }
+                    ServiceState::Running => {
+                        eprintln!("stopping service '{}' for removal", name);
+                        svc.pending_action = ServicePendingAction::Remove;
+                        stop_service(svc)?;
+                    }
+                }
+            }
+            if remove_now {
+                let _ = registry.remove_service(svc_id);
+            }
         }
     }
 
-    for (name, cfg) in service_configs.services.iter() {
-        match service_ids.get(name) {
-            None => eprintln!("adding new service {}", name),
+    for (name, cfg) in service_configs.services {
+        match service_ids.get(&name) {
+            None => {
+                eprintln!("adding new service '{}'", name);
+                let svc_id = id_gen
+                    .nextval()
+                    .ok_or_else(|| io::Error::other("service id overflow"))?;
+                let mut svc = Service::new(svc_id, name, cfg)?;
+                start_service(&mut svc, sigset)?;
+                eprintln!(
+                    "started new service '{}' with pid {:?}",
+                    svc.name, svc.pid
+                );
+                let pid = svc.pid;
+                registry.insert_service(svc);
+                if let Some(svc_pid) = pid {
+                    registry.register_pid(svc_pid, svc_id);
+                }
+            }
             Some(&svc_id) => {
-                let svc = registry.service(svc_id).unwrap();
-                if svc.config != *cfg {
-                    eprintln!("updating service {}", name);
+                if let Some(svc) = registry.service_mut(svc_id) {
+                    if svc.config != cfg {
+                        eprintln!("config changed for service {}", name);
+                        svc.update_config(cfg);
+                        match svc.state {
+                            ServiceState::Stopped(_) => {
+                                eprintln!("service '{}' was stopped, starting with new config", name);
+                                start_service(svc, sigset);
+                                if let Some(pid) = svc.pid {
+                                    registry.register_pid(pid, svc_id);
+                                }
+                            }
+                            ServiceState::Stopping => {
+                                eprintln!(
+                                    "service '{}' will be restared",
+                                    name
+                                );
+                                svc.pending_action =
+                                    ServicePendingAction::Restart;
+                            }
+                            ServiceState::Running => {
+                                eprintln!(
+                                    "service '{}' will be restared",
+                                    name
+                                );
+                                svc.pending_action =
+                                    ServicePendingAction::Restart;
+                                stop_service(svc)?;
+                            }
+                        }
+                    }
                 }
             }
         }

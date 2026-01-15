@@ -117,6 +117,8 @@ fn main() -> std::io::Result<()> {
                             match reload_services(
                                 &mut service_registry,
                                 &cfg_file_path,
+                                &mut service_id_generator,
+                                &sigset,
                             ) {
                                 Ok(()) => {
                                     eprintln!("finished reloading services")
