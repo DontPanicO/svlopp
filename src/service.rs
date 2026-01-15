@@ -97,11 +97,6 @@ pub enum ServiceState {
     /// This is the initial state for all
     /// services.
     Stopped(ServiceStopReason),
-    /// The service is starting.
-    /// This is the state in which a stopped
-    /// service is put after receiving a
-    /// startup request.
-    Starting,
     /// The serivce has been started and
     /// is now running.
     Running,
