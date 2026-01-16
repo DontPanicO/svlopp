@@ -270,7 +270,7 @@ impl Service {
     /// Returns the `ServicePendingAction` and leave `ServicePendingAction::None`
     /// in its place
     #[inline(always)]
-    pub fn take_service_action(&mut self) -> ServicePendingAction {
+    pub fn take_pending_action(&mut self) -> ServicePendingAction {
         std::mem::replace(
             &mut self.pending_action,
             ServicePendingAction::None,
@@ -474,28 +474,22 @@ pub fn reload_services(
         service_ids.insert(svc.name.clone(), svc.id);
     }
     for (name, &svc_id) in service_ids.iter() {
-        if !service_configs.services.contains_key(name) {
-            let mut remove_now = false;
-            if let Some(svc) = registry.service_mut(svc_id) {
-                match svc.state {
-                    ServiceState::Stopped(_) => {
-                        eprintln!("removing stopped service '{}'", name);
-                        svc.pending_action = ServicePendingAction::None;
-                        remove_now = true;
-                    }
-                    ServiceState::Stopping => {
-                        eprintln!("stopping service '{}' for removal", name);
-                        svc.pending_action = ServicePendingAction::Remove;
-                    }
-                    ServiceState::Running => {
-                        eprintln!("stopping service '{}' for removal", name);
-                        svc.pending_action = ServicePendingAction::Remove;
-                        stop_service(svc)?;
-                    }
+        if !service_configs.services.contains_key(name) && let Some(svc) = registry.service_mut(svc_id) {
+            match svc.state {
+                ServiceState::Stopped(_) => {
+                    eprintln!("removing stopped service '{}'", name);
+                    svc.pending_action = ServicePendingAction::None;
+                    let _ = registry.remove_service(svc_id);
                 }
-            }
-            if remove_now {
-                let _ = registry.remove_service(svc_id);
+                ServiceState::Stopping => {
+                    eprintln!("stopping service '{}' for removal", name);
+                    svc.pending_action = ServicePendingAction::Remove;
+                }
+                ServiceState::Running => {
+                    eprintln!("stopping service '{}' for removal", name);
+                    svc.pending_action = ServicePendingAction::Remove;
+                    stop_service(svc)?;
+                }
             }
         }
     }
@@ -560,37 +554,6 @@ pub fn reload_services(
     Ok(())
 }
 
-/// Same as `ServicePendingAction` but stores the service
-/// id where needed.
-///
-/// The main purpose of this struct is to store the service
-/// id and the pending action to outlive the mutable borrow
-/// of `ServiceRegistry`, so that actions like remove and
-/// restart (which needs a mutable borrow of the registry)
-/// can be postponed.
-///
-/// A valid alternative would be to just have the service id
-/// stored in `ServicePendingAction` and copy that to outlive
-/// the mutable borrow. However, semantically
-/// `ServicePendingAction` should not own a servce id, so I
-/// rather prefer to have this additional enum for that
-#[derive(Debug)]
-enum PostReapAction {
-    None,
-    Remove(u64),
-    Restart(u64),
-}
-
-impl PostReapAction {
-    fn from(pending_action: ServicePendingAction, svc_id: u64) -> Self {
-        match pending_action {
-            ServicePendingAction::None => Self::None,
-            ServicePendingAction::Remove => Self::Remove(svc_id),
-            ServicePendingAction::Restart => Self::Restart(svc_id),
-        }
-    }
-}
-
 /// SIGCHLD handler
 ///
 /// **N.B.** `rustix::process::wait` correspond to `waitpid(-1, ...)`, the syscall
@@ -601,17 +564,12 @@ impl PostReapAction {
 /// the caller to specify options. Here we're using `WNOHANG` to avoid actually blocking
 /// if no status information is available immediately when calling. In this way
 /// `waitpid(-1, ...)` differs completely from `wait`
-///
-/// After a process is reaped, if any pending action is present it is immediately applied.
-/// TODO: could it be better to return the actions to take and having them executed in
-/// the main loop?
 pub fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) -> io::Result<()> {
     loop {
         match wait(WaitOptions::NOHANG) {
             Ok(Some((pid, status))) => {
                 if let Some(exit_reason) = ExitReason::from_wait_status(status)
                 {
-                    let mut post_reap_action = PostReapAction::None;
                     match registry.take_by_pid(pid) {
                         Some(svc) => {
                             svc.pid = None;
@@ -621,38 +579,32 @@ pub fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) -> io::Re
                                 "service '{}' exited: {:?}",
                                 svc.name, exit_reason,
                             );
-                            let pending = svc.take_service_action();
-                            post_reap_action = PostReapAction::from(pending, svc.id);
+                            let svc_id = svc.id;
+                            let pending = svc.take_pending_action();
+                            match pending {
+                                ServicePendingAction::None => {}
+                                ServicePendingAction::Remove => {
+                                    if let Some(svc) = registry.remove_service(svc_id) {
+                                        eprintln!("removed service '{}'", svc.name);
+                                    };
+                                }
+                                ServicePendingAction::Restart => {
+                                   match start_service(svc, sigset) {
+                                       Ok(()) => {
+                                            eprintln!(
+                                                "restarted service '{}' with pid {:?}",
+                                                svc.name, svc.pid,
+                                            );
+                                            if let Some(pid) = svc.pid {
+                                                registry.register_pid(pid, svc_id);
+                                            }
+                                       }
+                                       Err(e) => eprintln!("failed to restart service '{}': {}", svc.name, e),
+                                   }
+                                }
+                            }
                         }
                         None => eprintln!("`waitpid` got unknown pid: {}", pid),
-                    }
-                    match post_reap_action {
-                        PostReapAction::None => {}
-                        PostReapAction::Remove(svc_id) => {
-                            if let Some(svc) = registry.remove_service(svc_id) {
-                                eprintln!("removed service '{}'", svc.name);
-                            }
-                        }
-                        PostReapAction::Restart(svc_id) => {
-                            let new_pid = if let Some(svc) = registry.service_mut(svc_id) {
-                                match start_service(svc, sigset) {
-                                    Ok(()) => {
-                                        eprintln!(
-                                            "restarted service '{}' with pid {:?}",
-                                            svc.name, svc.pid,
-                                        );
-                                        svc.pid
-                                    }
-                                    Err(e) => {
-                                        eprintln!("failed to restart service '{}': {}", svc.name, e);
-                                        None
-                                    }
-                                }
-                            } else { None };
-                            if let Some(pid) = new_pid {
-                                registry.register_pid(pid, svc_id);
-                            }
-                        }
                     }
                 } else {
                     match registry.get_by_pid(pid) {
