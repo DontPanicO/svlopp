@@ -118,7 +118,7 @@ fn main() -> std::io::Result<()> {
                                 &mut service_registry,
                                 &cfg_file_path,
                                 &mut service_id_generator,
-                                &sigset,
+                                &original_sigset,
                             ) {
                                 Ok(()) => {
                                     eprintln!("finished reloading services")
@@ -129,7 +129,10 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                         if signo.cast_signed() == libc::SIGCHLD {
-                            handle_sigchld(&mut service_registry)?;
+                            handle_sigchld(
+                                &mut service_registry,
+                                &original_sigset,
+                            )?;
                             if (sv_state == SupervisorState::ShutdownRequested)
                                 && service_registry
                                     .services()
