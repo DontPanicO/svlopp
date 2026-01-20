@@ -46,4 +46,4 @@
 
 ## License
 
-[We have to pick a license]
+This project is licensed under the Mozilla Public License, version 2.0 (MPL-2.0).
