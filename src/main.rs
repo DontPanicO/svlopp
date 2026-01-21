@@ -6,7 +6,7 @@ use std::{env, os::fd::AsFd};
 
 use rustix::event::epoll;
 
-use svloop::{
+use svlopp::{
     service::{
         handle_sigchld, reload_services, start_service, stop_service, Service,
         ServiceConfigData, ServiceIdGen, ServiceRegistry,
