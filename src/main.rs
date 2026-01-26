@@ -113,7 +113,6 @@ fn main() -> std::io::Result<()> {
                 ID_SFD => {
                     for info in read_signalfd_all(sfd.as_fd())? {
                         let signo = info.signal();
-                        eprintln!("signal: {}", signo);
                         if (signo.cast_signed() == libc::SIGHUP)
                             && (sv_state == SupervisorState::Running)
                         {
@@ -167,8 +166,8 @@ fn main() -> std::io::Result<()> {
                     }
                 }
                 ID_TFD => {
-                    let exps = read_timerfd(tfd.as_fd())?;
-                    eprintln!("timer fired (expirations={})", exps);
+                    // `timerfd` is currently unused, read just to drain it
+                    let _ = read_timerfd(tfd.as_fd())?;
                 }
                 other => eprintln!("unknown epoll event id={}", other),
             }
