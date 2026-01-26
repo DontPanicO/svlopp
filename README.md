@@ -21,6 +21,7 @@ One example of this is portability: while I'm firmly convinced that's important,
 leading me to sacrifice portability in order to optimize svlopp for a single target platform - Linux. That drove some of the other
 principles. svlopp uses a `signalfd` for signal handling, receiving signals as events, which makes it convenient to have a single
 event loop rather than having a *per process* watcher approach.
+
 Another important aspect is clarity. While I was reading the source code of other init systems / process supervisors, I noticed a
 clear distinction between designs that were self explanatory and easy to follow locally - most of them - and those whose functionality
 is hidden behind multiple layers of abstraction - a few -, requiring me to keep track of long call chains and data flows before even
@@ -30,6 +31,7 @@ Something else I took away from my readings is the idea that - quoting the s6 au
 the way*. That means to me that system software should not pollute the user space from both the perspective of other system software
 it might interact with, and the user's point of view by not trying to reduce the spectrum of software they are able to run on their
 machines.
+
 This naturally leads to the last point: avoiding feature creep. Features that are not clearly in scope are better left out, and
 the burden — or the pleasure — of addressing those concerns should be left to other software, built specifically for that purpose,
 and better suited to solving that particular problem. That's something I see people - including myself - intuitively understanding
@@ -37,7 +39,24 @@ even before knowing that thing has a name and it's an idea well defined by the U
 
 ## High-level architecture
 
-[Architecture overview - epoll, signalfd, service lifecycle, reload mechanism]
+svlopp runs a single epoll loop that currently watches a `signalfd` and a `timerfd`.
+
+Signals are handled via `signalfd`, allowing them to be treated as regular events rather than asynchronous interruptions.
+This makes it possible to have all the supervision logic driven by that loop, instead of creating per service monitoring
+threads or processes.
+The following signals are currently handled:
+- **SIGCHLD**: one or more child processes exited, svlopp reaps all exited children
+- **SIGHUP**: configuration reload, svlopp re-reads the configuration, diffs it against the current state and reconciles
+- **SIGTERM / SIGINT**: graceful shutdown, svlopp sends `SIGTERM` to all running services and waits for them to exit
+
+The `timerfd` fires periodically but is currently unused. It is intended for future use cases such as restart deadlines,
+timeouts, or backoff strategies.
+
+On reload (`SIGHUP`), svlopp reads the configuration and reconciles it with the current runtime state: new services get
+added and started, removed services get stopped and removed, and changed services get restarted with their updated
+definition. Some of those actions can be performed immediately (for example, starting a new service or removing a stopped
+one), while others have to be deferred until the service process has exited. This preserves a single reaping path through
+`SIGCHLD` and keeps process lifecycle handling centralized and predictable.
 
 ## Quick Start
 
@@ -53,8 +72,8 @@ command = "sleep"
 args = ["infinity"]
 
 [services.my_daemon]
-command = "/usr/local/bin/my_daemon"
-args = ["--config", "/etc/my_daemon.conf"]
+command = "/usr/local/bin/my_service"
+args = ["--config", "/etc/my_service.conf"]
 ```
 
 Run svlopp:
@@ -82,6 +101,10 @@ name, a command, and its arguments:
 command = "service_bin"
 args = ["service", "options"]
 ```
+
+Services are expected to run in the foreground. svlopp supervises the processes it starts and reaps
+them directly; services that daemonize themselves, double-fork, or are explicitly backgrounded
+(e.g. using `&`) will break supervision and are not supported.
 
 svlopp in still in its early stages, and the configuration format should be expected to evolve.
 Service definitions will likely expand beyond what is currently available, and the overall
