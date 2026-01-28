@@ -2,10 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::os::fd::{BorrowedFd, FromRawFd, OwnedFd};
+use std::{
+    io,
+    os::fd::{BorrowedFd, FromRawFd, OwnedFd},
+};
 
 use bitflags::bitflags;
-use rustix::io;
 
 use crate::utils::cvt;
 
@@ -28,7 +30,7 @@ pub struct SigSet {
 
 impl SigSet {
     #[inline(always)]
-    pub fn empty() -> io::Result<Self> {
+    pub fn empty() -> rustix::io::Result<Self> {
         unsafe {
             let mut raw = std::mem::zeroed();
             cvt(libc::sigemptyset(&mut raw))?;
@@ -39,7 +41,7 @@ impl SigSet {
     /// Create a new `SigSet` from the current
     /// thread signal mask
     #[inline(always)]
-    pub fn current() -> io::Result<Self> {
+    pub fn current() -> rustix::io::Result<Self> {
         unsafe {
             let mut raw = std::mem::zeroed();
             cvt(libc::sigprocmask(
@@ -52,7 +54,7 @@ impl SigSet {
     }
 
     #[inline(always)]
-    pub fn add(&mut self, signal: i32) -> io::Result<()> {
+    pub fn add(&mut self, signal: i32) -> rustix::io::Result<()> {
         unsafe { cvt(libc::sigaddset(&mut self.raw, signal))? };
         Ok(())
     }
@@ -63,7 +65,7 @@ impl SigSet {
     }
 }
 
-pub fn block_thread_signals(sigset: &SigSet) -> io::Result<()> {
+pub fn block_thread_signals(sigset: &SigSet) -> rustix::io::Result<()> {
     unsafe {
         cvt(libc::sigprocmask(
             libc::SIG_BLOCK,
@@ -74,7 +76,7 @@ pub fn block_thread_signals(sigset: &SigSet) -> io::Result<()> {
     Ok(())
 }
 
-pub fn set_thread_signal_mask(sigset: &SigSet) -> io::Result<()> {
+pub fn set_thread_signal_mask(sigset: &SigSet) -> rustix::io::Result<()> {
     unsafe {
         cvt(libc::sigprocmask(
             libc::SIG_SETMASK,
@@ -87,7 +89,10 @@ pub fn set_thread_signal_mask(sigset: &SigSet) -> io::Result<()> {
 
 /// TODO: we're hardcoding fd to be -1, causing `signalfd` to only ask for
 /// a new file descriptor
-pub fn signalfd(sigset: &SigSet, flags: SignalfdFlags) -> io::Result<OwnedFd> {
+pub fn signalfd(
+    sigset: &SigSet,
+    flags: SignalfdFlags,
+) -> rustix::io::Result<OwnedFd> {
     unsafe {
         let fd = cvt(libc::signalfd(-1, sigset.as_ptr(), flags.bits() as _))?;
         Ok(OwnedFd::from_raw_fd(fd))
@@ -160,7 +165,7 @@ impl SignalfdSiginfo {
 pub fn read_signalfd_batch(
     fd: BorrowedFd<'_>,
     buf: &mut [SignalfdSiginfo],
-) -> io::Result<usize> {
+) -> rustix::io::Result<usize> {
     if buf.is_empty() {
         return Ok(0);
     }
@@ -170,13 +175,13 @@ pub fn read_signalfd_batch(
             std::mem::size_of_val(buf),
         )
     };
-    match io::read(fd, bytes_buf) {
+    match rustix::io::read(fd, bytes_buf) {
         Ok(0) => Ok(0),
         Ok(sz) if sz % std::mem::size_of::<SignalfdSiginfo>() == 0 => {
             Ok(sz / std::mem::size_of::<SignalfdSiginfo>())
         }
-        Ok(_) => Err(io::Errno::IO),
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
+        Ok(_) => Err(rustix::io::Errno::IO),
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
         Err(e) => Err(e),
     }
 }
