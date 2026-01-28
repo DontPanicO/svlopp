@@ -3,7 +3,6 @@ name = "svlopp"
 version = "0.1.0"
 edition = "2024"
 license = "MPL-2.0"
-license-file = "LICENSE"
 description = "A lightweight, event-driven process supervisor for Linux built around a single epoll loop"
 authors = ["Andrea Tedeschi <dontpanic.call0@gmail.com>"]
 readme = "README.md"
