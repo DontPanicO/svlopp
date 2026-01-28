@@ -12,8 +12,8 @@ use svlopp::{
         ServiceConfigData, ServiceIdGen, ServiceRegistry,
     },
     signalfd::{
-        block_thread_signals, read_signalfd_all, signalfd, SigSet,
-        SignalfdFlags,
+        block_thread_signals, read_signalfd_batch, signalfd, SigSet,
+        SignalfdFlags, SignalfdSiginfo,
     },
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
     SupervisorState,
@@ -21,6 +21,8 @@ use svlopp::{
 
 const ID_SFD: u64 = 1;
 const ID_TFD: u64 = 2;
+const SIGINFO_BUF_LEN: usize = 16;
+const EVENTS_BUF_LEN: usize = 16;
 
 fn main() -> std::io::Result<()> {
     let mut args = env::args().skip(1);
@@ -92,26 +94,27 @@ fn main() -> std::io::Result<()> {
         }
     }
 
+    let mut siginfo_buf = [SignalfdSiginfo::empty(); SIGINFO_BUF_LEN];
+    let mut events_buf = [epoll::Event {
+        flags: epoll::EventFlags::empty(),
+        data: epoll::EventData::new_u64(0),
+    }; EVENTS_BUF_LEN];
+
     eprintln!(
         "supervisor core started (epoll + signalfd + timerfd). Ctrl+C to exit."
     );
 
-    // Vec is uninit but `epoll_wait` will write to it.
-    // As `epoll_wait` returns the number of bytes to read
-    // accesses up to that index are safe.
-    let mut events: Vec<epoll::Event> = Vec::with_capacity(16);
-    #[allow(clippy::uninit_vec)]
-    unsafe {
-        events.set_len(16);
-    }
-
     'outer: loop {
-        let n = epoll::wait(&epfd, &mut events, None)?;
+        let n = epoll::wait(&epfd, &mut events_buf, None)?;
 
-        for ev in &events[..n as usize] {
+        for ev in &events_buf[..n as usize] {
             match ev.data.u64() {
                 ID_SFD => {
-                    for info in read_signalfd_all(sfd.as_fd())? {
+                    // TODO: if we want to make sure to drain `sfd`, we could call
+                    // `read_signalfd_batch` in a loop until it returns 0
+                    let siginfo_read =
+                        read_signalfd_batch(sfd.as_fd(), &mut siginfo_buf)?;
+                    for info in &siginfo_buf[..siginfo_read] {
                         let signo = info.signal();
                         if (signo.cast_signed() == libc::SIGHUP)
                             && (sv_state == SupervisorState::Running)

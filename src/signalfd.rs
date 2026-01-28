@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
+use std::os::fd::{BorrowedFd, FromRawFd, OwnedFd};
 
 use bitflags::bitflags;
 use rustix::io;
@@ -138,49 +138,45 @@ impl SignalfdSiginfo {
     /// Any other method call before a successfull call to
     /// `libc::read` is UB.
     #[inline(always)]
-    pub unsafe fn emtpy() -> Self {
+    pub fn empty() -> Self {
         Self {
             raw: unsafe { std::mem::zeroed() },
         }
     }
 
     #[inline(always)]
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut libc::signalfd_siginfo {
+    pub fn as_mut_ptr(&mut self) -> *mut libc::signalfd_siginfo {
         &mut self.raw
     }
 }
 
-pub fn read_signalfd(
+/// Read up to `buf.len()` `SignalfdSiginfo` from `fd` and
+/// return the number of items read. Return `Ok(0)` if reading
+/// from `fd` would block (`WOULDBLOCK`).
+///
+/// N.B. this may not drain the fd. This is fine as we're
+/// using level-triggered epoll, which will fire again on
+/// the next call to wait
+pub fn read_signalfd_batch(
     fd: BorrowedFd<'_>,
-) -> io::Result<Option<SignalfdSiginfo>> {
-    let mut info = unsafe { SignalfdSiginfo::emtpy() };
-    let n = unsafe {
-        libc::read(
-            fd.as_raw_fd(),
-            info.as_mut_ptr() as *mut libc::c_void,
-            std::mem::size_of::<libc::signalfd_siginfo>(),
+    buf: &mut [SignalfdSiginfo],
+) -> io::Result<usize> {
+    if buf.is_empty() {
+        return Ok(0);
+    }
+    let bytes_buf = unsafe {
+        std::slice::from_raw_parts_mut(
+            buf.as_mut_ptr() as *mut u8,
+            std::mem::size_of_val(buf),
         )
     };
-
-    match cvt(n) {
-        Ok(0) => Ok(None),
-        Ok(sz)
-            if sz as usize == std::mem::size_of::<libc::signalfd_siginfo>() =>
-        {
-            Ok(Some(info))
+    match io::read(fd, bytes_buf) {
+        Ok(0) => Ok(0),
+        Ok(sz) if sz % std::mem::size_of::<SignalfdSiginfo>() == 0 => {
+            Ok(sz / std::mem::size_of::<SignalfdSiginfo>())
         }
         Ok(_) => Err(io::Errno::IO),
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
         Err(e) => Err(e),
     }
-}
-
-pub fn read_signalfd_all(
-    fd: BorrowedFd<'_>,
-) -> io::Result<Vec<SignalfdSiginfo>> {
-    let mut out = Vec::new();
-    while let Some(info) = read_signalfd(fd)? {
-        out.push(info);
-    }
-    Ok(out)
 }
