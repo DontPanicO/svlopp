@@ -608,7 +608,7 @@ pub fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) -> io::Re
                                 }
                             }
                         }
-                        None => eprintln!("`waitpid` got unknown pid: {}", pid),
+                        None => eprintln!("reaped unknown pid {} (likely adopted descendant)", pid),
                     }
                 } else {
                     match registry.get_by_pid(pid) {

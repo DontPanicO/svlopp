@@ -118,13 +118,13 @@ configuration structure may change as new features are introduced.
 - Configuration parsing
 - Process spawning and lifecycle tracking
 - Event-driven supervision
-- Child process reaping
+- Child processes reaping
+- Subreaping of orhpaned descendant processes (`PR_SET_CHILD_SUBREAPER`)
 - Graceful shutdown
 - Static configuration reload
 
 ### Not yet implemented / still thinking about
 
-- Reaping of orphaned descendant processes (`PR_SET_CHILD_SUBREAPER`)
 - Useful logging
 - pidfd based process management
 - Extend service definition
@@ -133,7 +133,8 @@ configuration structure may change as new features are introduced.
 
 svlopp is still in an early stage, and several important pieces are either missing or incomplete:
 - svlopp is currently a user space process supervisor, and a bare-bones one at that
-- subreaping support is still missing
+- Subreaping support is minimal. Orphaned descendant are reaped, but no additional semantics (such
+  as attribution to services) are currently implemented.
 - Restart behavior is minimal and not configurable. Currently, to restart a stopped service one
   should first remove the service from the TOML configuration, send `SIGHUP`, add it back and send
   `SIGHUP` again

@@ -4,7 +4,10 @@
 
 use std::{env, os::fd::AsFd};
 
-use rustix::event::epoll;
+use rustix::{
+    event::epoll,
+    process::{set_child_subreaper, Pid},
+};
 
 use svlopp::{
     service::{
@@ -35,6 +38,13 @@ fn main() -> std::io::Result<()> {
     };
 
     let mut sv_state = SupervisorState::default();
+
+    // set the `child subreaper` attribute. `rustix::process::set_child_subreaper`
+    // takes an `Option<Pid>`, which is odd since the kernel expects a `long`
+    // (non-zero sets the attribut, zero unsets it). Presumably this id done
+    // because `None` maps to zero, while `rustix::process::Pid` guarantees a
+    // non-zero value
+    unsafe { set_child_subreaper(Some(Pid::from_raw_unchecked(1)))? };
 
     let original_sigset = SigSet::current()?;
     let mut sigset = SigSet::empty()?;
