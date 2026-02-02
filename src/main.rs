@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::{env, os::fd::AsFd};
+use std::{env, os::fd::AsFd, time::Instant};
 
 use rustix::{
     event::epoll,
@@ -11,8 +11,9 @@ use rustix::{
 
 use svlopp::{
     service::{
-        handle_sigchld, reload_services, start_service, stop_service, Service,
-        ServiceConfigData, ServiceIdGen, ServiceRegistry,
+        force_kill_service, handle_sigchld, reload_services, start_service,
+        stop_service, Service, ServiceConfigData, ServiceIdGen,
+        ServiceRegistry, ServiceState,
     },
     signalfd::{
         block_thread_signals, read_signalfd_batch, signalfd, SigSet,
@@ -181,6 +182,17 @@ fn main() -> std::io::Result<()> {
                 ID_TFD => {
                     // `timerfd` is currently unused, read just to drain it
                     let _ = read_timerfd(tfd.as_fd())?;
+                    let now = Instant::now();
+                    for svc in service_registry.services() {
+                        match svc.state {
+                            ServiceState::Stopping(kill_deadline)
+                                if now >= kill_deadline =>
+                            {
+                                force_kill_service(svc)?;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 other => eprintln!("unknown epoll event id={}", other),
             }

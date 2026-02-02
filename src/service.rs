@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::{Duration, Instant}};
 use std::ffi::CString;
 use std::io;
 
@@ -17,6 +17,10 @@ use crate::{
     signalfd::{set_thread_signal_mask, SigSet},
     utils::is_crash_signal,
 };
+
+/// Timeout for graceful shutdown (`SIGTERM`), after which the process
+/// is forcefully killed via `SIGKILL`
+const SERVICE_STOP_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Process exit reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -72,7 +76,7 @@ impl ServiceStopReason {
     ) -> Self {
         match exit_reason {
             ExitReason::Exited(code) => {
-                if matches!(svc_state, ServiceState::Stopping) {
+                if matches!(svc_state, ServiceState::Stopping(_)) {
                     Self::SupervisorTerminated
                 } else if code == 0 {
                     Self::Success
@@ -83,7 +87,7 @@ impl ServiceStopReason {
             ExitReason::Signaled(sig) => {
                 if is_crash_signal(sig) {
                     Self::Crashed(sig)
-                } else if matches!(svc_state, ServiceState::Stopping) {
+                } else if matches!(svc_state, ServiceState::Stopping(_)) {
                     Self::SupervisorTerminated
                 } else {
                     Self::Killed(sig)
@@ -99,17 +103,17 @@ impl ServiceStopReason {
 pub enum ServiceState {
     /// The service is stopped.
     /// This is the initial state for all
-    /// services.
+    /// services
     Stopped(ServiceStopReason),
     /// The serivce has been started and
-    /// is now running.
+    /// is now running
     Running,
     /// The service is stopping.
     /// Services are put in this state after
     /// a stop request, which can be issued
     /// from different actors and in
-    /// different forms.
-    Stopping,
+    /// different forms
+    Stopping(Instant),
 }
 
 impl Default for ServiceState {
@@ -336,19 +340,32 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
 /// Stop a service by calling `kill(pid, SIGTERM)` and marks it as
 /// stopping by setting state to `ServiceState::Stopping`.
 pub fn stop_service(svc: &mut Service) -> io::Result<()> {
-    if svc.state != ServiceState::Running {
-        return Ok(());
+    match svc.state {
+        ServiceState::Running => {
+            debug_assert!(svc.pid.is_some(), "service '{}' is running but no pid attached", svc.name);
+            let pid = match svc.pid {
+                Some(p) => p,
+                None => return Ok(()),
+            };
+            kill_process(pid, Signal::TERM)?;
+            svc.state = ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
+            Ok(())
+        }
+        _ => Ok(()),
     }
+}
+
+/// Kill a service with `SIGKILL`
+pub fn force_kill_service(svc: &Service) -> io::Result<()> {
     let pid = match svc.pid {
         Some(p) => p,
-        None => {
-            eprintln!("service '{}' is running but has no pid", svc.name,);
-            return Ok(());
-        }
+        None => return Ok(()),
     };
-    kill_process(pid, Signal::TERM)?;
-    svc.state = ServiceState::Stopping;
-    Ok(())
+    match kill_process(pid, Signal::KILL) {
+        Ok(()) => Ok(()),
+        Err(e) if e == rustix::io::Errno::SRCH => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// The services registry.
@@ -455,7 +472,7 @@ impl ServiceRegistry {
 ///   from the registry immediately.
 /// * If `ServiceState::Running`: call `stop_service` and mark for removal so
 ///   that the SIGCHLD handler can remove it once stopped.
-/// * If `ServiceState::Stopping`: just mark for removal.
+/// * If `ServiceState::Stopping(_)`: just mark for removal.
 ///
 /// For changed services (present in both the registry and the new config
 /// but with different configurations):
@@ -464,7 +481,7 @@ impl ServiceRegistry {
 /// * If `ServiceState::Running`: call `stop_service`, store new config and
 ///   mark for restart so that when the SIGCHLD handler reaps the process it
 ///   can restart it.
-/// * if `ServiceState::Stopping`: just store the new config and mark for
+/// * if `ServiceState::Stopping(_)`: just store the new config and mark for
 ///   restart.
 pub fn reload_services(
     registry: &mut ServiceRegistry,
@@ -485,7 +502,7 @@ pub fn reload_services(
                     svc.pending_action = ServicePendingAction::None;
                     let _ = registry.remove_service(svc_id);
                 }
-                ServiceState::Stopping => {
+                ServiceState::Stopping(_) => {
                     eprintln!("stopping service '{}' for removal", name);
                     svc.pending_action = ServicePendingAction::Remove;
                 }
@@ -533,7 +550,7 @@ pub fn reload_services(
                                 registry.register_pid(pid, svc_id);
                             }
                         }
-                        ServiceState::Stopping => {
+                        ServiceState::Stopping(_) => {
                             eprintln!(
                                 "service '{}' will be restared",
                                 name
