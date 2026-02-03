@@ -5,8 +5,8 @@
 use std::os::fd::{BorrowedFd, OwnedFd};
 
 use rustix::time::{
-    timerfd_create, timerfd_settime, Itimerspec, TimerfdClockId, TimerfdFlags,
-    TimerfdTimerFlags, Timespec,
+    Itimerspec, TimerfdClockId, TimerfdFlags, TimerfdTimerFlags, Timespec,
+    timerfd_create, timerfd_settime,
 };
 
 pub fn create_timerfd_1s_periodic() -> rustix::io::Result<OwnedFd> {

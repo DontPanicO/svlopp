@@ -2,19 +2,22 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::{collections::HashMap, time::{Duration, Instant}};
 use std::ffi::CString;
 use std::io;
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use rustix::{
-    fs::{open, OFlags},
-    process::{kill_process, wait, Pid, Signal, WaitOptions, WaitStatus},
+    fs::{OFlags, open},
+    process::{Pid, Signal, WaitOptions, WaitStatus, kill_process, wait},
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
 use serde::Deserialize;
 
 use crate::{
-    signalfd::{set_thread_signal_mask, SigSet},
+    signalfd::{SigSet, set_thread_signal_mask},
     utils::is_crash_signal,
 };
 
@@ -279,10 +282,7 @@ impl Service {
     /// in its place
     #[inline(always)]
     pub fn take_pending_action(&mut self) -> ServicePendingAction {
-        std::mem::replace(
-            &mut self.pending_action,
-            ServicePendingAction::None,
-        )
+        std::mem::replace(&mut self.pending_action, ServicePendingAction::None)
     }
 }
 
@@ -342,13 +342,18 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
 pub fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running => {
-            debug_assert!(svc.pid.is_some(), "service '{}' is running but no pid attached", svc.name);
+            debug_assert!(
+                svc.pid.is_some(),
+                "service '{}' is running but no pid attached",
+                svc.name
+            );
             let pid = match svc.pid {
                 Some(p) => p,
                 None => return Ok(()),
             };
             kill_process(pid, Signal::TERM)?;
-            svc.state = ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
+            svc.state =
+                ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
             Ok(())
         }
         _ => Ok(()),
@@ -495,7 +500,9 @@ pub fn reload_services(
         service_ids.insert(svc.name.clone(), svc.id);
     }
     for (name, &svc_id) in service_ids.iter() {
-        if !service_configs.services.contains_key(name) && let Some(svc) = registry.service_mut(svc_id) {
+        if !service_configs.services.contains_key(name)
+            && let Some(svc) = registry.service_mut(svc_id)
+        {
             match svc.state {
                 ServiceState::Stopped(_) => {
                     eprintln!("removing stopped service '{}'", name);
@@ -535,7 +542,9 @@ pub fn reload_services(
                 }
             }
             Some(&svc_id) => {
-                if let Some(svc) = registry.service_mut(svc_id) && (svc.config != cfg) {
+                if let Some(svc) = registry.service_mut(svc_id)
+                    && (svc.config != cfg)
+                {
                     eprintln!("config changed for service {}", name);
                     // Update the configuration immediately.
                     // The currently running process may still be using the old config
@@ -544,27 +553,22 @@ pub fn reload_services(
                     svc.update_config(cfg)?;
                     match svc.state {
                         ServiceState::Stopped(_) => {
-                            eprintln!("service '{}' was stopped, starting with new config", name);
+                            eprintln!(
+                                "service '{}' was stopped, starting with new config",
+                                name
+                            );
                             start_service(svc, sigset)?;
                             if let Some(pid) = svc.pid {
                                 registry.register_pid(pid, svc_id);
                             }
                         }
                         ServiceState::Stopping(_) => {
-                            eprintln!(
-                                "service '{}' will be restared",
-                                name
-                            );
-                            svc.pending_action =
-                                ServicePendingAction::Restart;
+                            eprintln!("service '{}' will be restared", name);
+                            svc.pending_action = ServicePendingAction::Restart;
                         }
                         ServiceState::Running => {
-                            eprintln!(
-                                "service '{}' will be restared",
-                                name
-                            );
-                            svc.pending_action =
-                                ServicePendingAction::Restart;
+                            eprintln!("service '{}' will be restared", name);
+                            svc.pending_action = ServicePendingAction::Restart;
                             stop_service(svc)?;
                         }
                     }
@@ -585,7 +589,10 @@ pub fn reload_services(
 /// the caller to specify options. Here we're using `WNOHANG` to avoid actually blocking
 /// if no status information is available immediately when calling. In this way
 /// `waitpid(-1, ...)` differs completely from `wait`
-pub fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) -> io::Result<()> {
+pub fn handle_sigchld(
+    registry: &mut ServiceRegistry,
+    sigset: &SigSet,
+) -> io::Result<()> {
     loop {
         match wait(WaitOptions::NOHANG) {
             Ok(Some((pid, status))) => {
@@ -605,27 +612,39 @@ pub fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) -> io::Re
                             match pending {
                                 ServicePendingAction::None => {}
                                 ServicePendingAction::Remove => {
-                                    if let Some(svc) = registry.remove_service(svc_id) {
-                                        eprintln!("removed service '{}'", svc.name);
+                                    if let Some(svc) =
+                                        registry.remove_service(svc_id)
+                                    {
+                                        eprintln!(
+                                            "removed service '{}'",
+                                            svc.name
+                                        );
                                     };
                                 }
                                 ServicePendingAction::Restart => {
-                                   match start_service(svc, sigset) {
-                                       Ok(()) => {
+                                    match start_service(svc, sigset) {
+                                        Ok(()) => {
                                             eprintln!(
                                                 "restarted service '{}' with pid {:?}",
                                                 svc.name, svc.pid,
                                             );
                                             if let Some(pid) = svc.pid {
-                                                registry.register_pid(pid, svc_id);
+                                                registry
+                                                    .register_pid(pid, svc_id);
                                             }
-                                       }
-                                       Err(e) => eprintln!("failed to restart service '{}': {}", svc.name, e),
-                                   }
+                                        }
+                                        Err(e) => eprintln!(
+                                            "failed to restart service '{}': {}",
+                                            svc.name, e
+                                        ),
+                                    }
                                 }
                             }
                         }
-                        None => eprintln!("reaped unknown pid {} (likely adopted descendant)", pid),
+                        None => eprintln!(
+                            "reaped unknown pid {} (likely adopted descendant)",
+                            pid
+                        ),
                     }
                 } else {
                     match registry.get_by_pid(pid) {

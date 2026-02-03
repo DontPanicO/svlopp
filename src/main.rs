@@ -6,21 +6,21 @@ use std::{env, os::fd::AsFd, time::Instant};
 
 use rustix::{
     event::epoll,
-    process::{set_child_subreaper, Pid},
+    process::{Pid, set_child_subreaper},
 };
 
 use svlopp::{
+    SupervisorState,
     service::{
-        force_kill_service, handle_sigchld, reload_services, start_service,
-        stop_service, Service, ServiceConfigData, ServiceIdGen,
-        ServiceRegistry, ServiceState,
+        Service, ServiceConfigData, ServiceIdGen, ServiceRegistry,
+        ServiceState, force_kill_service, handle_sigchld, reload_services,
+        start_service, stop_service,
     },
     signalfd::{
-        block_thread_signals, read_signalfd_batch, signalfd, SigSet,
-        SignalfdFlags, SignalfdSiginfo,
+        SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals,
+        read_signalfd_batch, signalfd,
     },
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
-    SupervisorState,
 };
 
 const ID_SFD: u64 = 1;
