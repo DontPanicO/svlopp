@@ -284,6 +284,21 @@ impl Service {
     pub fn take_pending_action(&mut self) -> ServicePendingAction {
         std::mem::replace(&mut self.pending_action, ServicePendingAction::None)
     }
+
+    #[inline(always)]
+    pub fn debug_assert_invariants(&self) {
+        debug_assert!(
+            match self.state {
+                ServiceState::Running | ServiceState::Stopping(_) =>
+                    self.pid.is_some(),
+                ServiceState::Stopped(_) => self.pid.is_none(),
+            },
+            "service '{}' invariant violated: state={:?}, pid={:?}",
+            self.name,
+            self.state,
+            self.pid,
+        )
+    }
 }
 
 /// Redirect stdio fds to /dev/null.
@@ -331,6 +346,7 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
             let pid = unsafe { Pid::from_raw_unchecked(raw) };
             svc.pid = Some(pid);
             svc.state = ServiceState::Running;
+            svc.debug_assert_invariants();
             Ok(())
         }
         _ => Err(io::Error::last_os_error()),
@@ -342,11 +358,6 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
 pub fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running => {
-            debug_assert!(
-                svc.pid.is_some(),
-                "service '{}' is running but no pid attached",
-                svc.name
-            );
             let pid = match svc.pid {
                 Some(p) => p,
                 None => return Ok(()),
@@ -354,6 +365,7 @@ pub fn stop_service(svc: &mut Service) -> io::Result<()> {
             kill_process(pid, Signal::TERM)?;
             svc.state =
                 ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
+            svc.debug_assert_invariants();
             Ok(())
         }
         _ => Ok(()),
