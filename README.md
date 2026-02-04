@@ -49,8 +49,8 @@ The following signals are currently handled:
 - **SIGHUP**: configuration reload, svlopp re-reads the configuration, diffs it against the current state and reconciles
 - **SIGTERM / SIGINT**: graceful shutdown, svlopp sends `SIGTERM` to all running services and waits for them to exit
 
-The `timerfd` fires periodically but is currently unused. It is intended for future use cases such as restart deadlines,
-timeouts, or backoff strategies.
+The `timerfd` fires periodically and is currently used to enforce shutdown deadlines, allowing svlopp to forcefully
+terminate child processes that ignore `SIGTERM`.
 
 On reload (`SIGHUP`), svlopp reads the configuration and reconciles it with the current runtime state: new services get
 added and started, removed services get stopped and removed, and changed services get restarted with their updated
