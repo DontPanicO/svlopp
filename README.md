@@ -9,18 +9,17 @@ svlopp is under active development and is not production ready. It currently tar
 ## What is this?
 
 Right now, svlopp is a Linux process supervisor that lives in user space: you define a set of processes and svlopp
-starts them, tracks them, and reaps them when they exit. The long term goal is to make svlopp a complete yet minimal
-init system for Linux.
+starts them, tracks them, and reaps them when they exit. The long term goal is to evolve svlopp into a minimal init
+system for Linux, focused on the essential responsibilities of init.
 
 ## Design Principles
 
 While svlopp is a recent project, it was preceded by a lot of reading about init systems - source code, docs, articles - to the
-point where I had already formed strong opinions on the topic before starting to write the code. However, my opinions on init
-systems in general might not always reflect one to one in svlopp.
-One example of this is portability: while I'm firmly convinced that's important, I've found the Unix world already well served,
-leading me to sacrifice portability in order to optimize svlopp for a single target platform - Linux. That drove some of the other
-principles. svlopp uses a `signalfd` for signal handling, receiving signals as events, which makes it convenient to have a single
-event loop rather than having a *per process* watcher approach.
+point where I had already formed strong opinions on the topic before writing any code.
+svlopp largely reflects those opinions, with the single exception of portability: while I generally consider it important, I found
+the Unix ecosystem already well served in that regard and chose instead to optimize svlopp for a single target platform - Linux.
+That decision drove some of the other principles. svlopp uses a `signalfd` for signal handling, receiving signals as events, which
+makes it convenient to have a single event loop rather than having a *per process* watcher approach.
 
 Another important aspect is clarity. While I was reading the source code of other init systems / process supervisors, I noticed a
 clear distinction between designs that were self explanatory and easy to follow locally - most of them - and those whose functionality
