@@ -93,17 +93,33 @@ kill -TERM $(pidof svlopp)
 ## Configuration
 
 Configuration is required to define services. As of now svlopp is configured via a single TOML
-file, and service definition support just the bare minimum needed to launch a process: a service
-name, a command, and its arguments:
+file, and service definition support just the bare minimum needed to launch and supervise a process:
+a service name, a command, its arguments, and an optional termination reaction:
 ```toml
 [service.service_name]
 command = "service_bin"
 args = ["service", "options"]
+on_exit = "Restart" # optional
 ```
 
 Services are expected to run in the foreground. svlopp supervises the processes it starts and reaps
 them directly; services that daemonize themselves, double-fork, or are explicitly backgrounded
 (e.g. using `&`) will break supervision and are not supported.
+
+The optional on exit field defines what svlopp should do after a service process exists.
+It is a fallback action, taken only when no other explicit action is pending (for example after a
+configuration reload triggered by `SIGHUP`).
+
+Supported values are:
+
+- `None` (default): do nothing. The service will not be restarted automatically, but svlopp will keep
+it in memory, so it can be started again via an explicit command (not yet supported).
+- `Restart`: restart the service after it exits.
+- `Remove`: remove the service from supervision after it exits. A configuration reload (`SIGHUP`) is
+required to start the service again.
+
+If a service is stopped by svlopp itself (e.g during shutdown, configuration reload or - once
+supported - via an explicit command) the fallback action is not taken.
 
 svlopp in still in its early stages, and the configuration format should be expected to evolve.
 Service definitions will likely expand beyond what is currently available, and the overall
@@ -125,6 +141,7 @@ configuration structure may change as new features are introduced.
 ### Not yet implemented / still thinking about
 
 - Useful logging
+- User commands to start, stop and restart services at runtime (e.g. via a control socket)
 - pidfd based process management
 - Extend service definition
 

@@ -128,9 +128,21 @@ impl Default for ServiceState {
 /// Service configuration
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct ServiceConfig {
+    /// Path to the binary or binary name if in `PATH`
     pub command: String,
+    /// Binary arguments
     #[serde(default)]
     pub args: Vec<String>,
+    /// Fallback pending action to take.
+    /// This allows to define restart behavior (e.g.
+    /// if a service exits, restart it), but only
+    /// as a fallback to `Service::pending_action` as
+    /// reload takes precedence.
+    /// This is ignored if a service is stopped with
+    /// reason `ServiceStopReason::SupervisorTerminated`
+    #[serde(rename = "on_exit")]
+    #[serde(default)]
+    pub fallback_pending_action: ServicePendingAction,
 }
 
 impl ServiceConfig {
@@ -205,7 +217,9 @@ impl ServiceIdGen {
 /// Pending action to be executed when a service stops.
 ///
 /// Used during reload to defer actions for services that are
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize,
+)]
 pub enum ServicePendingAction {
     /// No pending action to perform
     #[default]
@@ -614,13 +628,31 @@ pub fn handle_sigchld(
                         Some(svc) => {
                             svc.pid = None;
                             let stop_reason = ServiceStopReason::from_exit_reason_and_service_state(exit_reason, svc.state);
+                            debug_assert!(
+                                !matches!(
+                                    stop_reason,
+                                    ServiceStopReason::NeverStarted
+                                ),
+                                "reaped service '{}' that was never started",
+                                svc.name
+                            );
                             svc.state = ServiceState::Stopped(stop_reason);
                             eprintln!(
                                 "service '{}' exited: {:?}",
                                 svc.name, exit_reason,
                             );
                             let svc_id = svc.id;
-                            let pending = svc.take_pending_action();
+                            let pending = match svc.take_pending_action() {
+                                ServicePendingAction::None => match stop_reason
+                                {
+                                    ServiceStopReason::SupervisorTerminated
+                                    | ServiceStopReason::NeverStarted => {
+                                        ServicePendingAction::None
+                                    }
+                                    _ => svc.config.fallback_pending_action,
+                                },
+                                p => p,
+                            };
                             match pending {
                                 ServicePendingAction::None => {}
                                 ServicePendingAction::Remove => {
