@@ -11,10 +11,13 @@ use rustix::{
 
 use svlopp::{
     SupervisorState,
+    control::{
+        ControlCommand, ControlError, create_control_fifo, read_control_command,
+    },
     service::{
         Service, ServiceConfigData, ServiceIdGen, ServiceRegistry,
-        ServiceState, force_kill_service, handle_sigchld, reload_services,
-        start_service, stop_service,
+        ServiceState, apply_control_op, force_kill_service, handle_sigchld,
+        reload_services, start_service, stop_service,
     },
     signalfd::{
         SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals,
@@ -25,6 +28,7 @@ use svlopp::{
 
 const ID_SFD: u64 = 1;
 const ID_TFD: u64 = 2;
+const ID_PFD: u64 = 3;
 const SIGINFO_BUF_LEN: usize = 16;
 const EVENTS_BUF_LEN: usize = 16;
 
@@ -55,6 +59,8 @@ fn main() -> std::io::Result<()> {
     sigset.add(libc::SIGINT)?;
     block_thread_signals(&sigset)?;
 
+    let (pfd, _wr_pfd) = create_control_fifo("/run/svlopp/control")?;
+
     let sfd =
         signalfd(&sigset, SignalfdFlags::CLOEXEC | SignalfdFlags::NONBLOCK)?;
 
@@ -71,6 +77,12 @@ fn main() -> std::io::Result<()> {
         &epfd,
         &tfd,
         epoll::EventData::new_u64(ID_TFD),
+        epoll::EventFlags::IN,
+    )?;
+    epoll::add(
+        &epfd,
+        &pfd,
+        epoll::EventData::new_u64(ID_PFD),
         epoll::EventFlags::IN,
     )?;
 
@@ -194,6 +206,26 @@ fn main() -> std::io::Result<()> {
                         }
                     }
                 }
+                ID_PFD => match read_control_command(pfd.as_fd()) {
+                    Ok(Some(wcmd)) => match ControlCommand::try_from(&wcmd) {
+                        Ok(cmd) => {
+                            apply_control_op(
+                                &mut service_registry,
+                                cmd.name,
+                                cmd.op,
+                                &original_sigset,
+                            )?;
+                        }
+                        Err(e) => {
+                            eprintln!("invalid command: {}", e)
+                        }
+                    },
+                    Ok(None) => {}
+                    Err(ControlError::InvalidCommand(e)) => {
+                        eprintln!("invalid command: {}", e);
+                    }
+                    Err(ControlError::Io(e)) => return Err(e),
+                },
                 other => eprintln!("unknown epoll event id={}", other),
             }
         }
