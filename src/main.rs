@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::{env, os::fd::AsFd, time::Instant};
+use std::{os::fd::AsFd, time::Instant};
 
 use rustix::{
     event::epoll,
@@ -10,7 +10,7 @@ use rustix::{
 };
 
 use svlopp::{
-    SupervisorState,
+    SupervisorState, cli,
     control::{
         ControlCommand, ControlError, create_control_fifo, read_control_command,
     },
@@ -33,14 +33,7 @@ const SIGINFO_BUF_LEN: usize = 16;
 const EVENTS_BUF_LEN: usize = 16;
 
 fn main() -> std::io::Result<()> {
-    let mut args = env::args().skip(1);
-    let cfg_file_path = match args.next() {
-        Some(path) => path,
-        None => {
-            eprintln!("usage: svlopp <config_file>");
-            std::process::exit(1);
-        }
-    };
+    let args = cli::parse();
 
     let mut sv_state = SupervisorState::default();
 
@@ -59,7 +52,7 @@ fn main() -> std::io::Result<()> {
     sigset.add(libc::SIGINT)?;
     block_thread_signals(&sigset)?;
 
-    let (pfd, _wr_pfd) = create_control_fifo("/run/svlopp/control")?;
+    let (pfd, _wr_pfd) = create_control_fifo(&args.control_path)?;
 
     let sfd =
         signalfd(&sigset, SignalfdFlags::CLOEXEC | SignalfdFlags::NONBLOCK)?;
@@ -88,7 +81,8 @@ fn main() -> std::io::Result<()> {
 
     let mut service_id_generator = ServiceIdGen::new();
     let mut service_registry = ServiceRegistry::new();
-    let service_configs = ServiceConfigData::from_config_file(&cfg_file_path)?;
+    let service_configs =
+        ServiceConfigData::from_config_file(&args.config_path)?;
 
     for (name, cfg) in service_configs.services.into_iter() {
         service_registry.insert_service(Service::new(
@@ -145,7 +139,7 @@ fn main() -> std::io::Result<()> {
                             eprintln!("reload requested (SIGHUP)");
                             match reload_services(
                                 &mut service_registry,
-                                &cfg_file_path,
+                                &args.config_path,
                                 &mut service_id_generator,
                                 &original_sigset,
                             ) {
