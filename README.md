@@ -38,7 +38,7 @@ even before knowing that thing has a name and it's an idea well defined by the U
 
 ## High-level architecture
 
-svlopp runs a single epoll loop that currently watches a `signalfd` and a `timerfd`.
+svlopp runs a single epoll loop that currently watches a `signalfd`, `timerfd` and a control FIFO.
 
 Signals are handled via `signalfd`, allowing them to be treated as regular events rather than asynchronous interruptions.
 This makes it possible to have all the supervision logic driven by that loop, instead of creating per service monitoring
@@ -50,6 +50,14 @@ The following signals are currently handled:
 
 The `timerfd` fires periodically and is currently used to enforce shutdown deadlines, allowing svlopp to forcefully
 terminate child processes that ignore `SIGTERM`.
+
+The control FIFO is a named pipe that accepts binary commands form external sources, to start stop and restart individual
+services. The protocol uses fixed-size frames of 256-bytes. The first byte encodes the operation, the second encodes
+the service name lengt, while the remaining 254-bytes are reserved for the service name.
+Note: the current protocol identifies services by name. Internally, services also have a numeric identifier and, once a
+status file is exposed in tmpfs, the control protocol may switch to using service ids instead (e.g. 1-byte opcode +
+8-bytes service id), delegating the `name -> id` lookup to the writer.
+See [Project Status](#project-status). 
 
 On reload (`SIGHUP`), svlopp reads the configuration and reconciles it with the current runtime state: new services get
 added and started, removed services get stopped and removed, and changed services get restarted with their updated
@@ -75,9 +83,9 @@ command = "/usr/local/bin/my_service"
 args = ["--config", "/etc/my_service.conf"]
 ```
 
-Run svlopp:
+Run svlopp (the control FIFO defaults to `/run/svlopp/control`; override with `--control-path PATH`):
 ```
-./target/release/svlopp services.toml
+./target/release/svlopp --control-path /some/dir/svlopp.fifo services.toml
 ```
 
 To reload configuration, send `SIGHUP`:
@@ -137,11 +145,12 @@ configuration structure may change as new features are introduced.
 - Subreaping of orhpaned descendant processes (`PR_SET_CHILD_SUBREAPER`)
 - Graceful shutdown
 - Static configuration reload
+- Runtime control commands (stop/start/restart) via control FIFO
 
 ### Not yet implemented / still thinking about
 
 - Useful logging
-- User commands to start, stop and restart services at runtime (e.g. via a control socket)
+- Service status reporting (e.g. status file in tmpfs)
 - pidfd based process management
 - Extend service definition
 
@@ -151,9 +160,6 @@ svlopp is still in an early stage, and several important pieces are either missi
 - svlopp is currently a user space process supervisor, and a bare-bones one at that
 - Subreaping support is minimal. Orphaned descendant are reaped, but no additional semantics (such
   as attribution to services) are currently implemented.
-- Restart behavior is minimal and not configurable. Currently, to restart a stopped service one
-  should first remove the service from the TOML configuration, send `SIGHUP`, add it back and send
-  `SIGHUP` again
 - Logging is very limited and poorly structured, if at all
 
 These limitations are known and sometimes intentional at this stage. The focus so far has been on
