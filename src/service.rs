@@ -16,6 +16,7 @@ use rustix::{
 };
 use serde::Deserialize;
 
+use crate::control::ControlOp;
 use crate::{
     signalfd::{SigSet, set_thread_signal_mask},
     utils::is_crash_signal,
@@ -600,6 +601,77 @@ pub fn reload_services(
                     }
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// Apply a control operation,
+///
+/// Control operations are treated as *requests*, meaning they must:
+/// - Respect the current state.
+/// - Never override an existing pending action.
+///
+/// In particular:
+/// - `Stop`: stops a service *only* if it is running. Never clears a
+///   pending action.
+/// - `Start`: starts a service *only* if it is stopped. Never sets/clears
+///   a pending action.
+/// - `Restart`: if the service is stopped, starts it. If it is running
+///   stops it and sets `pending_action = ServicePendingAction::Restart`
+///   *only* if no pending action exists.
+///
+/// TODO: We currently use the service name to identify services. See
+/// `crate::control::WireControlCommand` for details on switchingto
+/// service id
+pub fn apply_control_op(
+    registry: &mut ServiceRegistry,
+    svc_name: &str,
+    op: ControlOp,
+    sigset: &SigSet,
+) -> io::Result<()> {
+    if let Some(svc) = registry.services_mut().find(|s| s.name == svc_name) {
+        let svc_id = svc.id;
+        match op {
+            ControlOp::Stop => {
+                if matches!(svc.state, ServiceState::Running) {
+                    eprintln!("stopping service '{}'", svc_name);
+                    stop_service(svc)?;
+                }
+            }
+            ControlOp::Start => {
+                if matches!(svc.state, ServiceState::Stopped(_)) {
+                    start_service(svc, sigset)?;
+                    eprintln!(
+                        "started service '{}' with pid {:?}",
+                        svc_name, svc.pid
+                    );
+                    if let Some(pid) = svc.pid {
+                        registry.register_pid(pid, svc_id);
+                    }
+                }
+            }
+            ControlOp::Restart => match svc.state {
+                ServiceState::Stopped(_) => {
+                    start_service(svc, sigset)?;
+                    eprintln!(
+                        "started service '{}' with pid {:?}",
+                        svc_name, svc.pid
+                    );
+                    if let Some(pid) = svc.pid {
+                        registry.register_pid(pid, svc_id);
+                    }
+                }
+                ServiceState::Running => {
+                    if matches!(svc.pending_action, ServicePendingAction::None)
+                    {
+                        eprintln!("service '{}' will be restarted", svc_name);
+                        svc.pending_action = ServicePendingAction::Restart;
+                        stop_service(svc)?;
+                    }
+                }
+                _ => {}
+            },
         }
     }
     Ok(())
