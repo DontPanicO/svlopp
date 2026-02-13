@@ -65,6 +65,9 @@ definition. Some of those actions can be performed immediately (for example, sta
 one), while others have to be deferred until the service process has exited. This preserves a single reaping path through
 `SIGCHLD` and keeps process lifecycle handling centralized and predictable.
 
+svlopp maintains a runtime directory (by default `/run/svlopp`) that is expected to reside on a tmpfs and contains only
+ephemeral state, such as the control FIFO and other runtime-generated files.
+
 ## Quick Start
 
 Build svlopp with cargo:
@@ -83,9 +86,9 @@ command = "/usr/local/bin/my_service"
 args = ["--config", "/etc/my_service.conf"]
 ```
 
-Run svlopp (the control FIFO defaults to `/run/svlopp/control`; override with `--control-path PATH`):
+Run svlopp (the runtime directory defaults to `/run/svlopp`. Use `--run-dir PATH`):
 ```
-./target/release/svlopp --control-path /some/dir/svlopp.fifo services.toml
+./target/release/svlopp --run-dir /some/dir services.toml
 ```
 
 To reload configuration, send `SIGHUP`:
