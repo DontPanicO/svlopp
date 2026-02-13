@@ -31,6 +31,7 @@ const ID_TFD: u64 = 2;
 const ID_PFD: u64 = 3;
 const SIGINFO_BUF_LEN: usize = 16;
 const EVENTS_BUF_LEN: usize = 16;
+const CONTROL_PIPE_NAME: &str = "control";
 
 fn main() -> std::io::Result<()> {
     let args = cli::parse();
@@ -52,7 +53,8 @@ fn main() -> std::io::Result<()> {
     sigset.add(libc::SIGINT)?;
     block_thread_signals(&sigset)?;
 
-    let (pfd, _wr_pfd) = create_control_fifo(&args.control_path)?;
+    let (pfd, _wr_pfd) =
+        create_control_fifo(&args.run_dir.join(CONTROL_PIPE_NAME))?;
 
     let sfd =
         signalfd(&sigset, SignalfdFlags::CLOEXEC | SignalfdFlags::NONBLOCK)?;

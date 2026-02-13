@@ -4,6 +4,7 @@
 
 use std::ffi::CString;
 use std::io;
+use std::path::Path;
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
@@ -181,7 +182,7 @@ pub struct ServiceConfigData {
 
 impl ServiceConfigData {
     #[inline(always)]
-    pub fn from_config_file(path: &str) -> io::Result<Self> {
+    pub fn from_config_file(path: &Path) -> io::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         toml::from_str(&content).map_err(|e| io::Error::other(e.message()))
     }
@@ -517,7 +518,7 @@ impl ServiceRegistry {
 ///   restart.
 pub fn reload_services(
     registry: &mut ServiceRegistry,
-    cfg_path: &str,
+    cfg_path: &Path,
     id_gen: &mut ServiceIdGen,
     sigset: &SigSet,
 ) -> io::Result<()> {

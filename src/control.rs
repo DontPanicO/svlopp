@@ -5,21 +5,22 @@
 use std::{
     io,
     os::fd::{BorrowedFd, OwnedFd},
+    path::Path,
 };
+
+use rustix::fs::{CWD, Mode, OFlags, mkfifoat, open};
 
 const OP_STOP: u8 = 0x41;
 const OP_START: u8 = 0x42;
 const OP_RESTART: u8 = 0x43;
 const WIRE_COMMAND_SIZE: usize = 256;
 
-use rustix::fs::{CWD, Mode, OFlags, mkfifoat, open};
-
 /// Create (or reuse) the control fifo at `path` and return the read and
 /// write ends.
 ///
 /// A write end must be kept open to prevent the read end from receiving
 /// `EOF` when no other writers are open
-pub fn create_control_fifo(path: &str) -> io::Result<(OwnedFd, OwnedFd)> {
+pub fn create_control_fifo(path: &Path) -> io::Result<(OwnedFd, OwnedFd)> {
     match mkfifoat(CWD, path, Mode::from_bits_truncate(0o600)) {
         Ok(()) => {}
         Err(e) if e == rustix::io::Errno::EXIST => {}

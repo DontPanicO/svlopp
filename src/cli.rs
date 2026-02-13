@@ -2,31 +2,34 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-const DEFAULT_CONTROL_PATH: &str = "/run/svlopp/control";
+use std::path::PathBuf;
+
+const DEFAULT_RUN_DIR: &str = "/run/svlopp";
 
 #[derive(Debug, Clone)]
 pub struct CliArgs {
-    pub config_path: String,
-    pub control_path: String,
+    pub config_path: PathBuf,
+    pub run_dir: PathBuf,
 }
 
 fn usage() -> ! {
-    eprintln!("usage: svlopp [--control-path PATH] <config_file>");
+    eprintln!("usage: svlopp [--run-dir PATH] <config_file>");
     std::process::exit(1);
 }
 
 pub fn parse() -> CliArgs {
     let mut args = std::env::args().skip(1);
     let mut config_path = None;
-    let mut control_path = None;
+    let mut run_dir = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--control-path" => {
-                control_path = Some(args.next().unwrap_or_else(|| {
-                    eprintln!("--control-path requires a value");
-                    usage();
-                }));
+            "--run-dir" => {
+                run_dir =
+                    Some(PathBuf::from(args.next().unwrap_or_else(|| {
+                        eprintln!("--run-dir requires a value");
+                        usage();
+                    })));
             }
             "--help" => usage(),
             other if other.starts_with("-") => {
@@ -38,13 +41,12 @@ pub fn parse() -> CliArgs {
                     eprintln!("unexpected argument: {}", other);
                     usage();
                 }
-                config_path = Some(other.to_string());
+                config_path = Some(PathBuf::from(other));
             }
         }
     }
     CliArgs {
         config_path: config_path.unwrap_or_else(|| usage()),
-        control_path: control_path
-            .unwrap_or_else(|| DEFAULT_CONTROL_PATH.to_owned()),
+        run_dir: run_dir.unwrap_or_else(|| PathBuf::from(DEFAULT_RUN_DIR)),
     }
 }
