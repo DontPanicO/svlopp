@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use std::ffi::CString;
+use std::fmt;
 use std::io;
 use std::path::Path;
 use std::{
@@ -74,6 +75,19 @@ pub enum ServiceStopReason {
     Killed(i32),
 }
 
+impl fmt::Display for ServiceStopReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NeverStarted => write!(f, "never_started"),
+            Self::SupervisorTerminated => write!(f, "supervisor_terminated"),
+            Self::Success => write!(f, "exited(0)"),
+            Self::Error(e) => write!(f, "exited({})", e),
+            Self::Crashed(s) => write!(f, "signaled({})", s),
+            Self::Killed(s) => write!(f, "signaled({})", s),
+        }
+    }
+}
+
 impl ServiceStopReason {
     pub fn from_exit_reason_and_service_state(
         exit_reason: ExitReason,
@@ -124,6 +138,16 @@ pub enum ServiceState {
 impl Default for ServiceState {
     fn default() -> ServiceState {
         ServiceState::Stopped(ServiceStopReason::NeverStarted)
+    }
+}
+
+impl fmt::Display for ServiceState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Stopped(r) => write!(f, "stopped {}", r),
+            Self::Running => write!(f, "running"),
+            Self::Stopping(_) => write!(f, "stopping"),
+        }
     }
 }
 
@@ -299,6 +323,30 @@ impl Service {
     #[inline(always)]
     pub fn take_pending_action(&mut self) -> ServicePendingAction {
         std::mem::replace(&mut self.pending_action, ServicePendingAction::None)
+    }
+
+    #[inline(always)]
+    pub fn format_status_line(&self, w: &mut impl fmt::Write) -> fmt::Result {
+        match self.state {
+            ServiceState::Running | ServiceState::Stopping(_) => {
+                match self.pid {
+                    Some(p) => write!(
+                        w,
+                        "{} {} {} {}",
+                        self.name,
+                        self.id,
+                        self.state,
+                        p.as_raw_nonzero()
+                    ),
+                    None => {
+                        write!(w, "{} {} {} -", self.name, self.id, self.state)
+                    }
+                }
+            }
+            ServiceState::Stopped(_) => {
+                write!(w, "{} {} {}", self.name, self.id, self.state)
+            }
+        }
     }
 
     #[inline(always)]
@@ -491,6 +539,14 @@ impl ServiceRegistry {
     #[inline(always)]
     pub fn remove_service(&mut self, svc_id: u64) -> Option<Service> {
         self.services_map.remove(&svc_id)
+    }
+
+    pub fn format_status(&self, w: &mut impl fmt::Write) -> fmt::Result {
+        for svc in self.services_map.values() {
+            svc.format_status_line(w)?;
+            w.write_char('\n')?;
+        }
+        Ok(())
     }
 }
 
