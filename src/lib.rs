@@ -6,6 +6,7 @@ pub mod cli;
 pub mod control;
 pub mod service;
 pub mod signalfd;
+pub mod status;
 pub mod timerfd;
 pub mod utils;
 
