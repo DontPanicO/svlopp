@@ -23,6 +23,7 @@ use svlopp::{
         SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals,
         read_signalfd_batch, signalfd,
     },
+    status::{StatusFilePath, write_status_file},
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
 };
 
@@ -32,9 +33,12 @@ const ID_PFD: u64 = 3;
 const SIGINFO_BUF_LEN: usize = 16;
 const EVENTS_BUF_LEN: usize = 16;
 const CONTROL_PIPE_NAME: &str = "control";
+const STATUS_FILE_PATH: &str = "status";
 
 fn main() -> std::io::Result<()> {
     let args = cli::parse();
+    let status_file_path =
+        StatusFilePath::new(args.run_dir.join(STATUS_FILE_PATH));
 
     let mut sv_state = SupervisorState::default();
 
@@ -118,6 +122,7 @@ fn main() -> std::io::Result<()> {
         flags: epoll::EventFlags::empty(),
         data: epoll::EventData::new_u64(0),
     }; EVENTS_BUF_LEN];
+    let mut status_buf = String::new();
 
     eprintln!(
         "supervisor core started (epoll + signalfd + timerfd). Ctrl+C to exit."
@@ -186,6 +191,13 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                     }
+                    status_buf.clear();
+                    if service_registry.format_status(&mut status_buf).is_ok()
+                        && let Err(e) =
+                            write_status_file(&status_file_path, &status_buf)
+                    {
+                        eprintln!("failed to write status file: {}", e);
+                    }
                 }
                 ID_TFD => {
                     // `timerfd` is currently unused, read just to drain it
@@ -211,6 +223,17 @@ fn main() -> std::io::Result<()> {
                                 cmd.op,
                                 &original_sigset,
                             )?;
+                            status_buf.clear();
+                            if service_registry
+                                .format_status(&mut status_buf)
+                                .is_ok()
+                                && let Err(e) = write_status_file(
+                                    &status_file_path,
+                                    &status_buf,
+                                )
+                            {
+                                eprintln!("failed to write status file: {}", e);
+                            }
                         }
                         Err(e) => {
                             eprintln!("invalid command: {}", e)
