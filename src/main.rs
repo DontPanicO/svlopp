@@ -85,6 +85,13 @@ fn main() -> std::io::Result<()> {
         epoll::EventFlags::IN,
     )?;
 
+    let mut siginfo_buf = [SignalfdSiginfo::empty(); SIGINFO_BUF_LEN];
+    let mut events_buf = [epoll::Event {
+        flags: epoll::EventFlags::empty(),
+        data: epoll::EventData::new_u64(0),
+    }; EVENTS_BUF_LEN];
+    let mut status_buf = String::new();
+
     let mut service_id_generator = ServiceIdGen::new();
     let mut service_registry = ServiceRegistry::new();
     let service_configs =
@@ -117,12 +124,12 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    let mut siginfo_buf = [SignalfdSiginfo::empty(); SIGINFO_BUF_LEN];
-    let mut events_buf = [epoll::Event {
-        flags: epoll::EventFlags::empty(),
-        data: epoll::EventData::new_u64(0),
-    }; EVENTS_BUF_LEN];
-    let mut status_buf = String::new();
+    status_buf.clear();
+    if service_registry.format_status(&mut status_buf).is_ok()
+        && let Err(e) = write_status_file(&status_file_path, &status_buf)
+    {
+        eprintln!("failed to write status file: {}", e);
+    }
 
     eprintln!(
         "supervisor core started (epoll + signalfd + timerfd). Ctrl+C to exit."
