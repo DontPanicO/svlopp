@@ -28,6 +28,9 @@ pub struct StatusFilePath {
 impl StatusFilePath {
     /// For example:
     /// ```
+    /// use std::path::PathBuf;
+    /// use svlopp::status::StatusFilePath;
+    ///
     /// const STATUS_FILE_NAME: &str = "status";
     ///
     /// let run_dir = PathBuf::from("/run/svlopp");

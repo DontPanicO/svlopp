@@ -11,9 +11,7 @@ use rustix::{
 
 use svlopp::{
     SupervisorState, cli,
-    control::{
-        ControlCommand, ControlError, create_control_fifo, read_control_command,
-    },
+    control::{ControlError, create_control_fifo, read_control_command},
     service::{
         Service, ServiceConfigData, ServiceIdGen, ServiceRegistry,
         ServiceState, apply_control_op, force_kill_service, handle_sigchld,
@@ -222,30 +220,25 @@ fn main() -> std::io::Result<()> {
                     }
                 }
                 ID_PFD => match read_control_command(pfd.as_fd()) {
-                    Ok(Some(wcmd)) => match ControlCommand::try_from(&wcmd) {
-                        Ok(cmd) => {
-                            apply_control_op(
-                                &mut service_registry,
-                                cmd.name,
-                                cmd.op,
-                                &original_sigset,
-                            )?;
-                            status_buf.clear();
-                            if service_registry
-                                .format_status(&mut status_buf)
-                                .is_ok()
-                                && let Err(e) = write_status_file(
-                                    &status_file_path,
-                                    &status_buf,
-                                )
-                            {
-                                eprintln!("failed to write status file: {}", e);
-                            }
+                    Ok(Some(cmd)) => {
+                        apply_control_op(
+                            &mut service_registry,
+                            cmd.service_id,
+                            cmd.op,
+                            &original_sigset,
+                        )?;
+                        status_buf.clear();
+                        if service_registry
+                            .format_status(&mut status_buf)
+                            .is_ok()
+                            && let Err(e) = write_status_file(
+                                &status_file_path,
+                                &status_buf,
+                            )
+                        {
+                            eprintln!("failed to write status file: {}", e);
                         }
-                        Err(e) => {
-                            eprintln!("invalid command: {}", e)
-                        }
-                    },
+                    }
                     Ok(None) => {}
                     Err(ControlError::InvalidCommand(e)) => {
                         eprintln!("invalid command: {}", e);

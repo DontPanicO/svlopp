@@ -13,7 +13,7 @@ use rustix::fs::{CWD, Mode, OFlags, mkfifoat, open};
 const OP_STOP: u8 = 0x41;
 const OP_START: u8 = 0x42;
 const OP_RESTART: u8 = 0x43;
-const WIRE_COMMAND_SIZE: usize = 256;
+const WIRE_COMMAND_SIZE: usize = 9;
 
 /// Create (or reuse) the control fifo at `path` and return the read and
 /// write ends.
@@ -42,8 +42,6 @@ pub fn create_control_fifo(path: &Path) -> io::Result<(OwnedFd, OwnedFd)> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlProtocolError {
     InvalidOp(u8),
-    InvalidNameLen(u8),
-    InvalidUtf8,
     PartialFrame(usize),
 }
 
@@ -51,10 +49,6 @@ impl std::fmt::Display for ControlProtocolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidOp(op) => write!(f, "invalid opcode: 0x{:02x}", op),
-            Self::InvalidNameLen(len) => {
-                write!(f, "invalid service name length: {}", len)
-            }
-            Self::InvalidUtf8 => write!(f, "service name is not valid UTF-8"),
             Self::PartialFrame(n) => {
                 write!(f, "parital control frame ({} bytes)", n)
             }
@@ -90,122 +84,54 @@ pub enum ControlOp {
 }
 
 /// Command wire-format representation
-///
-/// TODO: We currently use the service name (as a string), because
-/// writers have no way of knowing the internal service id.
-/// Once a status file is maintained in tmpfs, we can switch to a
-/// service id based protocol and delegate the `name -> id` lookup
-/// to the writer
-#[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct WireControlCommand {
-    pub op: u8,
-    pub name_len: u8,
-    pub name: [u8; WIRE_COMMAND_SIZE - 2],
-}
-
-impl WireControlCommand {
-    #[inline(always)]
-    pub fn empty() -> Self {
-        Self {
-            op: 0,
-            name_len: 0,
-            name: [0u8; WIRE_COMMAND_SIZE - 2],
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ControlCommand<'a> {
+pub struct ControlCommand {
     pub op: ControlOp,
-    pub name: &'a str,
+    pub service_id: u64,
 }
 
-impl<'a> TryFrom<&'a WireControlCommand> for ControlCommand<'a> {
-    type Error = ControlProtocolError;
-
-    fn try_from(value: &'a WireControlCommand) -> Result<Self, Self::Error> {
-        let op = match value.op {
-            OP_STOP => ControlOp::Stop,
-            OP_START => ControlOp::Start,
-            OP_RESTART => ControlOp::Restart,
-            _ => {
-                return Err(ControlProtocolError::InvalidOp(value.op));
-            }
-        };
-        if value.name_len as usize > value.name.len() {
-            return Err(ControlProtocolError::InvalidNameLen(value.name_len));
-        }
-        let name = str::from_utf8(&value.name[..value.name_len as usize])
-            .map_err(|_| ControlProtocolError::InvalidUtf8)?;
-        Ok(ControlCommand::new(op, name))
-    }
-}
-
-impl<'a> ControlCommand<'a> {
+impl ControlCommand {
     #[inline(always)]
-    pub fn new(op: ControlOp, name: &'a str) -> Self {
-        Self { op, name }
+    pub fn new(op: ControlOp, service_id: u64) -> Self {
+        Self { op, service_id }
     }
 }
 
 /// Read a command from `fd`.
 ///
-/// We only return the command when exactly `WIRE_COMMAND_SIZE` bytes
-/// were read, so every byte of the `repr(C)` struct is initialized
-/// regardless of what the writer sent. Semantic validation (opcode,
-/// name_len, UTF-8) is deferred to `TryFrom`
+/// TODO: with 9-byte frames, a signle pipe buffer can hold thousands of
+/// commands. Currently we read one command per epoll wake (not losing them
+/// since it's level-triggered): if that becomes a bottleneck we could
+/// add a `read_control_command_batch` function to consume more commands
+/// per iteration
 pub fn read_control_command(
     fd: BorrowedFd<'_>,
-) -> Result<Option<WireControlCommand>, ControlError> {
-    let mut cmd = WireControlCommand {
-        op: 0,
-        name_len: 0,
-        name: [0u8; WIRE_COMMAND_SIZE - 2],
-    };
-    let buf = unsafe {
-        std::slice::from_raw_parts_mut(
-            &mut cmd as *mut WireControlCommand as *mut u8,
-            WIRE_COMMAND_SIZE,
-        )
-    };
-    match rustix::io::read(fd, buf) {
-        Ok(n) if n == WIRE_COMMAND_SIZE => Ok(Some(cmd)),
+) -> Result<Option<ControlCommand>, ControlError> {
+    let mut buf = [0u8; WIRE_COMMAND_SIZE];
+    match rustix::io::read(fd, &mut buf) {
+        Ok(n) if n == WIRE_COMMAND_SIZE => {
+            let op = match buf[0] {
+                OP_STOP => ControlOp::Stop,
+                OP_START => ControlOp::Start,
+                OP_RESTART => ControlOp::Restart,
+                other => {
+                    return Err(ControlError::InvalidCommand(
+                        ControlProtocolError::InvalidOp(other),
+                    ));
+                }
+            };
+            let mut svc_id_bytes = [0u8; 8];
+            svc_id_bytes.copy_from_slice(&buf[1..9]);
+            Ok(Some(ControlCommand::new(
+                op,
+                u64::from_le_bytes(svc_id_bytes),
+            )))
+        }
         Ok(0) => Ok(None), // should never happen as we keep the write end open
         Ok(n) => Err(ControlError::InvalidCommand(
             ControlProtocolError::PartialFrame(n),
         )),
         Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
-        Err(e) => Err(ControlError::Io(e.into())),
-    }
-}
-
-/// Read commands from `fd` into `buf` and returns the number of
-/// `WireControlCommand` read.
-///
-/// Only accept reads that are exact multiples of `WIRE_COMMAND_SIZE`, so
-/// every `WireControlCommand` in the returned slice is fully initialized.
-/// Semantic validation (opcode, name_len, UTF-8) is deferred to `TryFrom`
-pub fn read_control_commands_batch(
-    fd: BorrowedFd<'_>,
-    buf: &mut [WireControlCommand],
-) -> Result<usize, ControlError> {
-    if buf.is_empty() {
-        return Ok(0);
-    }
-    let bytes_buf = unsafe {
-        std::slice::from_raw_parts_mut(
-            buf.as_mut_ptr() as *mut u8,
-            buf.len() * WIRE_COMMAND_SIZE,
-        )
-    };
-    match rustix::io::read(fd, bytes_buf) {
-        Ok(n) if n % WIRE_COMMAND_SIZE == 0 => Ok(n / WIRE_COMMAND_SIZE),
-        Ok(0) => Ok(0), // should never happen as we keep the write end open
-        Ok(n) => Err(ControlError::InvalidCommand(
-            ControlProtocolError::PartialFrame(n),
-        )),
-        Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
         Err(e) => Err(ControlError::Io(e.into())),
     }
 }

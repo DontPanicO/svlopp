@@ -683,16 +683,16 @@ pub fn reload_services(
 /// service id
 pub fn apply_control_op(
     registry: &mut ServiceRegistry,
-    svc_name: &str,
+    svc_id: u64,
     op: ControlOp,
     sigset: &SigSet,
 ) -> io::Result<()> {
-    if let Some(svc) = registry.services_mut().find(|s| s.name == svc_name) {
+    if let Some(svc) = registry.service_mut(svc_id) {
         let svc_id = svc.id;
         match op {
             ControlOp::Stop => {
                 if matches!(svc.state, ServiceState::Running) {
-                    eprintln!("stopping service '{}'", svc_name);
+                    eprintln!("stopping service '{}'", svc.name);
                     stop_service(svc)?;
                 }
             }
@@ -701,7 +701,7 @@ pub fn apply_control_op(
                     start_service(svc, sigset)?;
                     eprintln!(
                         "started service '{}' with pid {:?}",
-                        svc_name, svc.pid
+                        svc.name, svc.pid
                     );
                     if let Some(pid) = svc.pid {
                         registry.register_pid(pid, svc_id);
@@ -713,7 +713,7 @@ pub fn apply_control_op(
                     start_service(svc, sigset)?;
                     eprintln!(
                         "started service '{}' with pid {:?}",
-                        svc_name, svc.pid
+                        svc.name, svc.pid
                     );
                     if let Some(pid) = svc.pid {
                         registry.register_pid(pid, svc_id);
@@ -722,7 +722,7 @@ pub fn apply_control_op(
                 ServiceState::Running => {
                     if matches!(svc.pending_action, ServicePendingAction::None)
                     {
-                        eprintln!("service '{}' will be restarted", svc_name);
+                        eprintln!("service '{}' will be restarted", svc.name);
                         svc.pending_action = ServicePendingAction::Restart;
                         stop_service(svc)?;
                     }
@@ -730,6 +730,8 @@ pub fn apply_control_op(
                 _ => {}
             },
         }
+    } else {
+        eprintln!("unkown service id: {}", svc_id);
     }
     Ok(())
 }
