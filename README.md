@@ -51,14 +51,6 @@ The following signals are currently handled:
 The `timerfd` fires periodically and is currently used to enforce shutdown deadlines, allowing svlopp to forcefully
 terminate child processes that ignore `SIGTERM`.
 
-The control FIFO is a named pipe that accepts binary commands form external sources, to start stop and restart individual
-services. The protocol uses fixed-size frames of 256-bytes. The first byte encodes the operation, the second encodes
-the service name lengt, while the remaining 254-bytes are reserved for the service name.
-Note: the current protocol identifies services by name. Internally, services also have a numeric identifier and, once a
-status file is exposed in tmpfs, the control protocol may switch to using service ids instead (e.g. 1-byte opcode +
-8-bytes service id), delegating the `name -> id` lookup to the writer.
-See [Project Status](#project-status). 
-
 On reload (`SIGHUP`), svlopp reads the configuration and reconciles it with the current runtime state: new services get
 added and started, removed services get stopped and removed, and changed services get restarted with their updated
 definition. Some of those actions can be performed immediately (for example, starting a new service or removing a stopped
@@ -66,7 +58,26 @@ one), while others have to be deferred until the service process has exited. Thi
 `SIGCHLD` and keeps process lifecycle handling centralized and predictable.
 
 svlopp maintains a runtime directory (by default `/run/svlopp`) that is expected to reside on a tmpfs and contains only
-ephemeral state, such as the control FIFO and other runtime-generated files.
+runtime generated state.
+
+### Status file
+
+svlopp maintains a status file in the runtime directory, which contains a snapshot of the current runtime
+state, one line per service.
+For running services:
+`<name> <id> <state> <pid>`
+
+For stopped services:
+`<name> <id> <state> <stop_reason>`
+
+The file is rewritten whenever the runtime state changes which makes it important for the runtime directory to reside on a tmpfs.
+
+### Control FIFO
+
+The control FIFO is a named pipe that accepts binary commands from external sources, to start stop and restart individual services.
+The protocol uses fixed-size frames of 9 bytes. The first byte encodes the operation, and the remaining 8 bytes carry the service
+id as a little-endian `u64`.
+Service ids are published in the status file. Writers are expected to resolve service names to ids by reading it.
 
 ## Quick Start
 
@@ -149,11 +160,11 @@ configuration structure may change as new features are introduced.
 - Graceful shutdown
 - Static configuration reload
 - Runtime control commands (stop/start/restart) via control FIFO
+- Service status reporting with status file
 
 ### Not yet implemented / still thinking about
 
 - Useful logging
-- Service status reporting (e.g. status file in tmpfs)
 - pidfd based process management
 - Extend service definition
 
