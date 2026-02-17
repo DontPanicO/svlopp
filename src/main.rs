@@ -33,6 +33,22 @@ const EVENTS_BUF_LEN: usize = 16;
 const CONTROL_PIPE_NAME: &str = "control";
 const STATUS_FILE_PATH: &str = "status";
 
+fn flush_status_file(
+    registry: &ServiceRegistry,
+    buf: &mut String,
+    path: &StatusFilePath,
+) {
+    buf.clear();
+    match registry.format_status(buf) {
+        Ok(()) => {
+            if let Err(e) = write_status_file(path, buf) {
+                eprintln!("failed to write status file: {}", e);
+            }
+        }
+        Err(_) => eprintln!("failed to fomrat status"),
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let args = cli::parse();
     let status_file_path =
@@ -122,12 +138,7 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    status_buf.clear();
-    if service_registry.format_status(&mut status_buf).is_ok()
-        && let Err(e) = write_status_file(&status_file_path, &status_buf)
-    {
-        eprintln!("failed to write status file: {}", e);
-    }
+    flush_status_file(&service_registry, &mut status_buf, &status_file_path);
 
     eprintln!(
         "supervisor core started (epoll + signalfd + timerfd). Ctrl+C to exit."
@@ -196,13 +207,11 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                     }
-                    status_buf.clear();
-                    if service_registry.format_status(&mut status_buf).is_ok()
-                        && let Err(e) =
-                            write_status_file(&status_file_path, &status_buf)
-                    {
-                        eprintln!("failed to write status file: {}", e);
-                    }
+                    flush_status_file(
+                        &service_registry,
+                        &mut status_buf,
+                        &status_file_path,
+                    );
                 }
                 ID_TFD => {
                     // `timerfd` is currently unused, read just to drain it
@@ -227,17 +236,11 @@ fn main() -> std::io::Result<()> {
                             cmd.op,
                             &original_sigset,
                         )?;
-                        status_buf.clear();
-                        if service_registry
-                            .format_status(&mut status_buf)
-                            .is_ok()
-                            && let Err(e) = write_status_file(
-                                &status_file_path,
-                                &status_buf,
-                            )
-                        {
-                            eprintln!("failed to write status file: {}", e);
-                        }
+                        flush_status_file(
+                            &service_registry,
+                            &mut status_buf,
+                            &status_file_path,
+                        );
                     }
                     Ok(None) => {}
                     Err(ControlError::InvalidCommand(e)) => {
