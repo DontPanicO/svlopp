@@ -115,22 +115,31 @@ kill -TERM $(pidof svlopp)
 ## Configuration
 
 Configuration is required to define services. As of now svlopp is configured via a single TOML
-file, and service definition support just the bare minimum needed to launch and supervise a process:
-a service name, a command, its arguments, and an optional termination reaction:
+file, and the service definition format consists of:
+- A service name
+- A command (the path to the binary)
+- Command arguments
+- An optional termination reaction
+- An optional working directory
+
 ```toml
-[service.service_name]
+[services.service_name]
 command = "service_bin"
 args = ["service", "options"]
 on_exit = "Restart" # optional
+working_directory = "/home/myuser" # optional
 ```
 
 Services are expected to run in the foreground. svlopp supervises the processes it starts and reaps
 them directly; services that daemonize themselves, double-fork, or are explicitly backgrounded
 (e.g. using `&`) will break supervision and are not supported.
 
-The optional on exit field defines what svlopp should do after a service process exists.
+The optional `on_exit` field defines what svlopp should do after a service process exits.
 It is a fallback action, taken only when no other explicit action is pending (for example after a
 configuration reload triggered by `SIGHUP`).
+
+The optional `working_directory` field sets the working directory for the service process. If not
+specified, the service inherits svlopp's current working directory.
 
 Supported values are:
 

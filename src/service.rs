@@ -6,6 +6,7 @@ use std::ffi::CString;
 use std::fmt;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
@@ -13,7 +14,9 @@ use std::{
 
 use rustix::{
     fs::{OFlags, open},
-    process::{Pid, Signal, WaitOptions, WaitStatus, kill_process, wait},
+    process::{
+        Pid, Signal, WaitOptions, WaitStatus, chdir, kill_process, wait,
+    },
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
 use serde::Deserialize;
@@ -159,6 +162,10 @@ pub struct ServiceConfig {
     /// Binary arguments
     #[serde(default)]
     pub args: Vec<String>,
+    /// Optional working directory for the service process.
+    /// If `None` the service inherits the current working directory
+    #[serde(default)]
+    pub working_directory: Option<PathBuf>,
     /// Fallback pending action to take.
     /// This allows to define restart behavior (e.g.
     /// if a service exits, restart it), but only
@@ -392,6 +399,9 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
     match unsafe { libc::fork() } {
         0 => {
             set_thread_signal_mask(sigset)?;
+            if let Some(cwd) = &svc.config.working_directory {
+                chdir(cwd)?;
+            }
             redirect_stdio_to_devnull()?;
             let argv: Vec<*const libc::c_char> = svc
                 .argv
