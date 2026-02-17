@@ -417,7 +417,7 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
                 .argv
                 .iter()
                 .map(|s| s.as_ptr())
-                .chain(Some(std::ptr::null()))
+                .chain(std::iter::once(std::ptr::null()))
                 .collect();
 
             unsafe {
@@ -429,7 +429,7 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
                         let envp: Vec<*const libc::c_char> = env
                             .iter()
                             .map(|s| s.as_ptr())
-                            .chain(Some(std::ptr::null()))
+                            .chain(std::iter::once(std::ptr::null()))
                             .collect();
                         libc::execvpe(argv[0], argv.as_ptr(), envp.as_ptr());
                     }
