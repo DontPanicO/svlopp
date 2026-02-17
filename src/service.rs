@@ -162,6 +162,9 @@ pub struct ServiceConfig {
     /// Binary arguments
     #[serde(default)]
     pub args: Vec<String>,
+    /// Optional environment to replace the parent one
+    #[serde(default)]
+    pub env: Option<HashMap<String, String>>,
     /// Optional working directory for the service process.
     /// If `None` the service inherits the current working directory
     #[serde(default)]
@@ -181,21 +184,25 @@ pub struct ServiceConfig {
 impl ServiceConfig {
     fn build_svc_argv(&self) -> io::Result<Vec<CString>> {
         let mut argv = Vec::with_capacity(self.args.len() + 1);
-        argv.push(CString::new(self.command.as_str()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "command contains NUL byte",
-            )
-        })?);
+        argv.push(CString::new(self.command.as_str())?);
         for arg in &self.args {
-            argv.push(CString::new(arg.as_str()).map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "argument contains NUL byte",
-                )
-            })?);
+            argv.push(CString::new(arg.as_str())?);
         }
         Ok(argv)
+    }
+
+    fn build_svc_envp(&self) -> io::Result<Option<Vec<CString>>> {
+        match &self.env {
+            None => Ok(None),
+            Some(map) => {
+                let mut envp = Vec::with_capacity(map.len());
+                for (key, value) in map {
+                    // TODO: maybe validate that it doesn't contain `=`?
+                    envp.push(CString::new(format!("{key}={value}"))?);
+                }
+                Ok(Some(envp))
+            }
+        }
     }
 }
 
@@ -275,6 +282,7 @@ pub struct Service {
     pub name: String,
     pub config: ServiceConfig,
     pub argv: Vec<CString>,
+    pub envp: Option<Vec<CString>>,
     pub pid: Option<Pid>,
     pub state: ServiceState,
     pub pending_action: ServicePendingAction,
@@ -288,11 +296,13 @@ impl Service {
         config: ServiceConfig,
     ) -> io::Result<Self> {
         let argv = config.build_svc_argv()?;
+        let envp = config.build_svc_envp()?;
         Ok(Self {
             id,
             name,
             config,
             argv,
+            envp,
             pid: None,
             state: ServiceState::Stopped(ServiceStopReason::NeverStarted),
             pending_action: ServicePendingAction::None,
@@ -411,7 +421,19 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
                 .collect();
 
             unsafe {
-                libc::execvp(argv[0], argv.as_ptr());
+                match &svc.envp {
+                    None => {
+                        libc::execvp(argv[0], argv.as_ptr());
+                    }
+                    Some(env) => {
+                        let envp: Vec<*const libc::c_char> = env
+                            .iter()
+                            .map(|s| s.as_ptr())
+                            .chain(Some(std::ptr::null()))
+                            .collect();
+                        libc::execvpe(argv[0], argv.as_ptr(), envp.as_ptr());
+                    }
+                }
                 libc::_exit(127);
             };
         }
