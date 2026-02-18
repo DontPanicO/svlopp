@@ -394,6 +394,43 @@ fn redirect_stdio_to_devnull() -> rustix::io::Result<()> {
     Ok(())
 }
 
+fn child_exec(svc: &Service, sigset: &SigSet) -> ! {
+    if set_thread_signal_mask(sigset).is_err() {
+        unsafe { libc::_exit(111) }
+    }
+    if let Some(cwd) = &svc.config.working_directory
+        && chdir(cwd).is_err()
+    {
+        unsafe { libc::_exit(111) }
+    }
+    if redirect_stdio_to_devnull().is_err() {
+        unsafe { libc::_exit(111) }
+    }
+    let argv: Vec<*const libc::c_char> = svc
+        .argv
+        .iter()
+        .map(|s| s.as_ptr())
+        .chain(std::iter::once(std::ptr::null()))
+        .collect();
+
+    unsafe {
+        match &svc.envp {
+            None => {
+                libc::execvp(argv[0], argv.as_ptr());
+            }
+            Some(env) => {
+                let envp: Vec<*const libc::c_char> = env
+                    .iter()
+                    .map(|s| s.as_ptr())
+                    .chain(std::iter::once(std::ptr::null()))
+                    .collect();
+                libc::execvpe(argv[0], argv.as_ptr(), envp.as_ptr());
+            }
+        }
+        libc::_exit(127);
+    }
+}
+
 /// Start a new service.
 ///
 /// a successful call to `fork` return `0` in the child process
@@ -407,36 +444,7 @@ fn redirect_stdio_to_devnull() -> rustix::io::Result<()> {
 /// with it
 pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
     match unsafe { libc::fork() } {
-        0 => {
-            set_thread_signal_mask(sigset)?;
-            if let Some(cwd) = &svc.config.working_directory {
-                chdir(cwd)?;
-            }
-            redirect_stdio_to_devnull()?;
-            let argv: Vec<*const libc::c_char> = svc
-                .argv
-                .iter()
-                .map(|s| s.as_ptr())
-                .chain(std::iter::once(std::ptr::null()))
-                .collect();
-
-            unsafe {
-                match &svc.envp {
-                    None => {
-                        libc::execvp(argv[0], argv.as_ptr());
-                    }
-                    Some(env) => {
-                        let envp: Vec<*const libc::c_char> = env
-                            .iter()
-                            .map(|s| s.as_ptr())
-                            .chain(std::iter::once(std::ptr::null()))
-                            .collect();
-                        libc::execvpe(argv[0], argv.as_ptr(), envp.as_ptr());
-                    }
-                }
-                libc::_exit(127);
-            };
-        }
+        0 => child_exec(svc, sigset),
         raw if raw > 0 => {
             // safe as we just checked that the pid is > 0
             let pid = unsafe { Pid::from_raw_unchecked(raw) };
