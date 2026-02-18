@@ -121,6 +121,7 @@ file, and the service definition format consists of:
 - Command arguments
 - An optional termination reaction
 - An optional working directory
+- Optional environment variables
 
 ```toml
 [services.service_name]
@@ -128,6 +129,10 @@ command = "service_bin"
 args = ["service", "options"]
 on_exit = "Restart" # optional
 working_directory = "/home/myuser" # optional
+
+[services.service_name.env] # optional
+FOO = "BAR"
+BAZ = "QUX"
 ```
 
 Services are expected to run in the foreground. svlopp supervises the processes it starts and reaps
@@ -137,9 +142,6 @@ them directly; services that daemonize themselves, double-fork, or are explicitl
 The optional `on_exit` field defines what svlopp should do after a service process exits.
 It is a fallback action, taken only when no other explicit action is pending (for example after a
 configuration reload triggered by `SIGHUP`).
-
-The optional `working_directory` field sets the working directory for the service process. If not
-specified, the service inherits svlopp's current working directory.
 
 Supported values are:
 
@@ -151,6 +153,40 @@ required to start the service again.
 
 If a service is stopped by svlopp itself (e.g during shutdown, configuration reload or - once
 supported - via an explicit command) the fallback action is not taken.
+
+The optional `working_directory` field sets the working directory for the service process. If not
+specified, the service inherits svlopp's current working directory.
+
+The optional `env` table defines the environment for the service process. If `env` is not specified
+the service inherits svlopp's current environment; otherwise, the inherited environment is completely
+replaced by the variables defined in `env`.
+
+This means that specifying an empty `env` results in a (mostly) empty environment and users are
+responsible for defining variables such as `PATH` if the command lookup relies on it.
+
+```toml
+# this will fail (no `PATH` defined)
+[services.service_name]
+command = "sleep"
+args = ["infinity"]
+
+[services.service_name.env]
+
+# this is fine (absolute path, no `PATH` needed)
+[services.service_name]
+command = "/usr/bin/sleep"
+args = ["infinity"]
+
+[services.service_name.env]
+
+# this is also fine (`PATH` explicitly defined)
+[services.service_name]
+command = "sleep"
+args = ["infinity"]
+
+[services.service_name.env]
+PATH = "/usr/bin"
+```
 
 svlopp in still in its early stages, and the configuration format should be expected to evolve.
 Service definitions will likely expand beyond what is currently available, and the overall
