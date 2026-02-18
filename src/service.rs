@@ -331,6 +331,7 @@ impl Service {
     #[inline(always)]
     pub fn update_config(&mut self, config: ServiceConfig) -> io::Result<()> {
         self.argv = config.build_svc_argv()?;
+        self.envp = config.build_svc_envp()?;
         self.config = config;
         Ok(())
     }
