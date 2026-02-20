@@ -5,6 +5,8 @@
 use std::ffi::CString;
 use std::fmt;
 use std::io;
+use std::os::fd::AsFd;
+use std::os::fd::BorrowedFd;
 use std::path::Path;
 use std::path::PathBuf;
 use std::{
@@ -13,7 +15,7 @@ use std::{
 };
 
 use rustix::{
-    fs::{OFlags, open},
+    fs::{Mode, OFlags, open},
     process::{
         Pid, Signal, WaitOptions, WaitStatus, chdir, kill_process, wait,
     },
@@ -169,6 +171,11 @@ pub struct ServiceConfig {
     /// If `None` the service inherits the current working directory
     #[serde(default)]
     pub working_directory: Option<PathBuf>,
+    /// Optional file to redirect the service `stdout` and
+    /// `stderr` to.
+    /// If `None` they are piped to `/dev/null`
+    #[serde(default)]
+    pub log_file_path: Option<PathBuf>,
     /// Fallback pending action to take.
     /// This allows to define restart behavior (e.g.
     /// if a service exits, restart it), but only
@@ -383,19 +390,40 @@ impl Service {
     }
 }
 
-/// Redirect stdio fds to /dev/null.
+/// Configure standard file descriptors.
+/// processes.
 ///
-/// Used to avoid polluting the main process output with the one of its
-/// children
-fn redirect_stdio_to_devnull() -> rustix::io::Result<()> {
-    let fd = open("/dev/null", OFlags::RDWR, rustix::fs::Mode::empty())?;
-    dup2_stdin(&fd)?;
-    dup2_stdout(&fd)?;
-    dup2_stderr(&fd)?;
+/// Invariants:
+/// - `devnull_fd` must be an open fd referring to `/dev/null`, opened for read-write
+/// - `log_fd`, if present, must be open for write
+/// - Both fds must remain valid across fork and must not have been closed in the child
+///
+/// It is intended to be called in the child arm of a fork, before execvp, so it must
+/// not perform any non async-signal-safe operation
+fn setup_child_stdio(
+    devnull_fd: BorrowedFd,
+    log_fd: Option<BorrowedFd>,
+) -> rustix::io::Result<()> {
+    dup2_stdin(devnull_fd)?;
+    match log_fd {
+        Some(fd) => {
+            dup2_stdout(fd)?;
+            dup2_stderr(fd)?;
+        }
+        None => {
+            dup2_stdout(devnull_fd)?;
+            dup2_stderr(devnull_fd)?;
+        }
+    }
     Ok(())
 }
 
-fn child_exec(svc: &Service, sigset: &SigSet) -> ! {
+fn child_exec(
+    svc: &Service,
+    sigset: &SigSet,
+    devnull_fd: BorrowedFd,
+    log_fd: Option<BorrowedFd>,
+) -> ! {
     if set_thread_signal_mask(sigset).is_err() {
         unsafe { libc::_exit(111) }
     }
@@ -404,7 +432,7 @@ fn child_exec(svc: &Service, sigset: &SigSet) -> ! {
     {
         unsafe { libc::_exit(111) }
     }
-    if redirect_stdio_to_devnull().is_err() {
+    if setup_child_stdio(devnull_fd, log_fd).is_err() {
         unsafe { libc::_exit(111) }
     }
     let argv: Vec<*const libc::c_char> = svc
@@ -444,8 +472,30 @@ fn child_exec(svc: &Service, sigset: &SigSet) -> ! {
 /// in the child processes, but we have to decide what to do
 /// with it
 pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
+    let devnull_fd =
+        open("/dev/null", OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())?;
+    let log_fd = svc
+        .config
+        .log_file_path
+        .as_ref()
+        .map(|p| {
+            open(
+                p,
+                OFlags::WRONLY
+                    | OFlags::CREATE
+                    | OFlags::APPEND
+                    | OFlags::CLOEXEC,
+                Mode::from_bits_truncate(0o644),
+            )
+        })
+        .transpose()?;
     match unsafe { libc::fork() } {
-        0 => child_exec(svc, sigset),
+        0 => child_exec(
+            svc,
+            sigset,
+            devnull_fd.as_fd(),
+            log_fd.as_ref().map(|fd| fd.as_fd()),
+        ),
         raw if raw > 0 => {
             // safe as we just checked that the pid is > 0
             let pid = unsafe { Pid::from_raw_unchecked(raw) };

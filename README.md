@@ -122,6 +122,7 @@ file, and the service definition format consists of:
 - An optional termination reaction
 - An optional working directory
 - Optional environment variables
+- An optional log file
 
 ```toml
 [services.service_name]
@@ -129,6 +130,7 @@ command = "service_bin"
 args = ["service", "options"]
 on_exit = "Restart" # optional
 working_directory = "/home/myuser" # optional
+log_file_path = "/var/log/service_name.log" # optional
 
 [services.service_name.env] # optional
 FOO = "BAR"
@@ -187,6 +189,10 @@ args = ["infinity"]
 [services.service_name.env]
 PATH = "/usr/bin"
 ```
+
+The optional `log_file_path` field specifies a file to which both `stdout` and `stderr` of the service
+are redirected. If not set, they are redirected to `/dev/null`.
+The file is opened in append mode and svlopp does not perform any kind of log rotation or size management.
 
 svlopp in still in its early stages, and the configuration format should be expected to evolve.
 Service definitions will likely expand beyond what is currently available, and the overall
