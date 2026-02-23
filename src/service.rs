@@ -519,7 +519,11 @@ pub fn stop_service(svc: &mut Service) -> io::Result<()> {
                 Some(p) => p,
                 None => return Ok(()),
             };
-            kill_process(pid, Signal::TERM)?;
+            match kill_process(pid, Signal::TERM) {
+                Ok(()) => {}
+                Err(e) if e == rustix::io::Errno::SRCH => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
             svc.state =
                 ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
             svc.debug_assert_invariants();
