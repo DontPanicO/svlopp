@@ -4,6 +4,7 @@
 
 pub mod cli;
 pub mod control;
+pub mod logging;
 pub mod service;
 pub mod signalfd;
 pub mod status;

@@ -4,6 +4,13 @@
 
 use std::{io, os::fd::BorrowedFd};
 
+use rustix::time::{ClockId, clock_gettime};
+
+pub fn timestamp() -> (i64, i64) {
+    let now = clock_gettime(ClockId::Realtime);
+    (now.tv_sec, now.tv_nsec)
+}
+
 pub trait RetCode: Copy {
     fn is_error(self) -> bool;
 }

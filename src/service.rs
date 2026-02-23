@@ -24,6 +24,8 @@ use rustix::{
 use serde::Deserialize;
 
 use crate::control::ControlOp;
+use crate::logging::LogLevel;
+use crate::svlogg;
 use crate::{
     signalfd::{SigSet, set_thread_signal_mask},
     utils::is_crash_signal,
@@ -680,16 +682,28 @@ pub fn reload_services(
         {
             match svc.state {
                 ServiceState::Stopped(_) => {
-                    eprintln!("removing stopped service '{}'", name);
+                    svlogg!(
+                        LogLevel::Info,
+                        "removing stopped service '{}'",
+                        name
+                    );
                     svc.pending_action = ServicePendingAction::None;
                     let _ = registry.remove_service(svc_id);
                 }
                 ServiceState::Stopping(_) => {
-                    eprintln!("stopping service '{}' for removal", name);
+                    svlogg!(
+                        LogLevel::Info,
+                        "stopping service '{}' for removal",
+                        name
+                    );
                     svc.pending_action = ServicePendingAction::Remove;
                 }
                 ServiceState::Running => {
-                    eprintln!("stopping service '{}' for removal", name);
+                    svlogg!(
+                        LogLevel::Info,
+                        "stopping service '{}' for removal",
+                        name
+                    );
                     svc.pending_action = ServicePendingAction::Remove;
                     stop_service(svc)?;
                 }
@@ -700,15 +714,17 @@ pub fn reload_services(
     for (name, cfg) in service_configs.services {
         match service_ids.get(&name) {
             None => {
-                eprintln!("adding new service '{}'", name);
+                svlogg!(LogLevel::Debug, "adding new service '{}'", name);
                 let svc_id = id_gen
                     .nextval()
                     .ok_or_else(|| io::Error::other("service id overflow"))?;
                 let mut svc = Service::new(svc_id, name, cfg)?;
                 start_service(&mut svc, sigset)?;
-                eprintln!(
+                svlogg!(
+                    LogLevel::Info,
                     "started new service '{}' with pid {:?}",
-                    svc.name, svc.pid
+                    svc.name,
+                    svc.pid
                 );
                 let pid = svc.pid;
                 registry.insert_service(svc);
@@ -720,7 +736,11 @@ pub fn reload_services(
                 if let Some(svc) = registry.service_mut(svc_id)
                     && (svc.config != cfg)
                 {
-                    eprintln!("config changed for service {}", name);
+                    svlogg!(
+                        LogLevel::Debug,
+                        "config changed for service {}",
+                        name
+                    );
                     // Update the configuration immediately.
                     // The currently running process may still be using the old config
                     // for a while. This is intentional: desired state wins over current
@@ -728,7 +748,8 @@ pub fn reload_services(
                     svc.update_config(cfg)?;
                     match svc.state {
                         ServiceState::Stopped(_) => {
-                            eprintln!(
+                            svlogg!(
+                                LogLevel::Info,
                                 "service '{}' was stopped, starting with new config",
                                 name
                             );
@@ -738,11 +759,19 @@ pub fn reload_services(
                             }
                         }
                         ServiceState::Stopping(_) => {
-                            eprintln!("service '{}' will be restared", name);
+                            svlogg!(
+                                LogLevel::Info,
+                                "service '{}' will be restared",
+                                name
+                            );
                             svc.pending_action = ServicePendingAction::Restart;
                         }
                         ServiceState::Running => {
-                            eprintln!("service '{}' will be restared", name);
+                            svlogg!(
+                                LogLevel::Info,
+                                "service '{}' will be restared",
+                                name
+                            );
                             svc.pending_action = ServicePendingAction::Restart;
                             stop_service(svc)?;
                         }
@@ -783,16 +812,18 @@ pub fn apply_control_op(
         match op {
             ControlOp::Stop => {
                 if matches!(svc.state, ServiceState::Running) {
-                    eprintln!("stopping service '{}'", svc.name);
+                    svlogg!(LogLevel::Info, "stopping service '{}'", svc.name);
                     stop_service(svc)?;
                 }
             }
             ControlOp::Start => {
                 if matches!(svc.state, ServiceState::Stopped(_)) {
                     start_service(svc, sigset)?;
-                    eprintln!(
+                    svlogg!(
+                        LogLevel::Info,
                         "started service '{}' with pid {:?}",
-                        svc.name, svc.pid
+                        svc.name,
+                        svc.pid
                     );
                     if let Some(pid) = svc.pid {
                         registry.register_pid(pid, svc_id);
@@ -802,9 +833,11 @@ pub fn apply_control_op(
             ControlOp::Restart => match svc.state {
                 ServiceState::Stopped(_) => {
                     start_service(svc, sigset)?;
-                    eprintln!(
+                    svlogg!(
+                        LogLevel::Info,
                         "started service '{}' with pid {:?}",
-                        svc.name, svc.pid
+                        svc.name,
+                        svc.pid
                     );
                     if let Some(pid) = svc.pid {
                         registry.register_pid(pid, svc_id);
@@ -813,7 +846,11 @@ pub fn apply_control_op(
                 ServiceState::Running => {
                     if matches!(svc.pending_action, ServicePendingAction::None)
                     {
-                        eprintln!("service '{}' will be restarted", svc.name);
+                        svlogg!(
+                            LogLevel::Info,
+                            "service '{}' will be restarted",
+                            svc.name
+                        );
                         svc.pending_action = ServicePendingAction::Restart;
                         stop_service(svc)?;
                     }
@@ -822,7 +859,7 @@ pub fn apply_control_op(
             },
         }
     } else {
-        eprintln!("unkown service id: {}", svc_id);
+        svlogg!(LogLevel::Warn, "unkown service id: {}", svc_id);
     }
     Ok(())
 }
@@ -859,9 +896,11 @@ pub fn handle_sigchld(
                                 svc.name
                             );
                             svc.state = ServiceState::Stopped(stop_reason);
-                            eprintln!(
+                            svlogg!(
+                                LogLevel::Info,
                                 "service '{}' exited: {:?}",
-                                svc.name, exit_reason,
+                                svc.name,
+                                exit_reason,
                             );
                             let svc_id = svc.id;
                             let pending = match svc.take_pending_action() {
@@ -881,7 +920,8 @@ pub fn handle_sigchld(
                                     if let Some(svc) =
                                         registry.remove_service(svc_id)
                                     {
-                                        eprintln!(
+                                        svlogg!(
+                                            LogLevel::Info,
                                             "removed service '{}'",
                                             svc.name
                                         );
@@ -890,24 +930,29 @@ pub fn handle_sigchld(
                                 ServicePendingAction::Restart => {
                                     match start_service(svc, sigset) {
                                         Ok(()) => {
-                                            eprintln!(
+                                            svlogg!(
+                                                LogLevel::Info,
                                                 "restarted service '{}' with pid {:?}",
-                                                svc.name, svc.pid,
+                                                svc.name,
+                                                svc.pid,
                                             );
                                             if let Some(pid) = svc.pid {
                                                 registry
                                                     .register_pid(pid, svc_id);
                                             }
                                         }
-                                        Err(e) => eprintln!(
+                                        Err(e) => svlogg!(
+                                            LogLevel::Error,
                                             "failed to restart service '{}': {}",
-                                            svc.name, e
+                                            svc.name,
+                                            e
                                         ),
                                     }
                                 }
                             }
                         }
-                        None => eprintln!(
+                        None => svlogg!(
+                            LogLevel::Info,
                             "reaped unknown pid {} (likely adopted descendant)",
                             pid
                         ),
@@ -915,12 +960,18 @@ pub fn handle_sigchld(
                 } else {
                     match registry.get_by_pid(pid) {
                         Some(svc) => {
-                            eprintln!(
+                            svlogg!(
+                                LogLevel::Warn,
                                 "service '{}' exited with status {:?}",
-                                svc.name, status
+                                svc.name,
+                                status
                             )
                         }
-                        None => eprintln!("`waitpid` got unknown pid: {}", pid),
+                        None => svlogg!(
+                            LogLevel::Warn,
+                            "`waitpid` got unknown pid: {}",
+                            pid
+                        ),
                     }
                 }
             }

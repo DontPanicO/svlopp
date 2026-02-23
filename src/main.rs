@@ -12,6 +12,7 @@ use rustix::{
 use svlopp::{
     SupervisorState, cli,
     control::{ControlError, create_control_fifo, read_control_command},
+    logging::{LogLevel, set_log_level},
     service::{
         Service, ServiceConfigData, ServiceIdGen, ServiceRegistry,
         ServiceState, apply_control_op, force_kill_service, handle_sigchld,
@@ -22,6 +23,7 @@ use svlopp::{
         read_signalfd_batch, signalfd,
     },
     status::{StatusFilePath, write_status_file},
+    svlogg,
     timerfd::{create_timerfd_1s_periodic, read_timerfd},
 };
 
@@ -42,10 +44,10 @@ fn flush_status_file(
     match registry.format_status(buf) {
         Ok(()) => {
             if let Err(e) = write_status_file(path, buf) {
-                eprintln!("failed to write status file: {}", e);
+                svlogg!(LogLevel::Error, "failed to write status file: {}", e);
             }
         }
-        Err(_) => eprintln!("failed to fomrat status"),
+        Err(_) => svlogg!(LogLevel::Error, "failed to fomrat status"),
     }
 }
 
@@ -53,6 +55,8 @@ fn main() -> std::io::Result<()> {
     let args = cli::parse();
     let status_file_path =
         StatusFilePath::new(args.run_dir.join(STATUS_FILE_PATH));
+
+    set_log_level(args.log_level);
 
     let mut sv_state = SupervisorState::default();
 
@@ -123,16 +127,23 @@ fn main() -> std::io::Result<()> {
         if let Some(svc) = service_registry.service_mut(svc_id) {
             match start_service(svc, &original_sigset) {
                 Ok(()) => {
-                    eprintln!(
+                    svlogg!(
+                        LogLevel::Info,
                         "started service '{}' with pid {:?}",
-                        svc.name, svc.pid
+                        svc.name,
+                        svc.pid
                     );
                     if let Some(pid) = svc.pid {
                         service_registry.register_pid(pid, svc_id);
                     }
                 }
                 Err(e) => {
-                    eprintln!("failed to start service '{}': {}", svc.name, e)
+                    svlogg!(
+                        LogLevel::Error,
+                        "failed to start service '{}': {}",
+                        svc.name,
+                        e
+                    );
                 }
             }
         }
@@ -140,9 +151,7 @@ fn main() -> std::io::Result<()> {
 
     flush_status_file(&service_registry, &mut status_buf, &status_file_path);
 
-    eprintln!(
-        "supervisor core started (epoll + signalfd + timerfd). Ctrl+C to exit."
-    );
+    svlogg!(LogLevel::Info, "supervisor started. Ctrl+C to exit");
 
     'outer: loop {
         let n = epoll::wait(&epfd, &mut events_buf, None)?;
@@ -159,17 +168,19 @@ fn main() -> std::io::Result<()> {
                         if (signo.cast_signed() == libc::SIGHUP)
                             && (sv_state == SupervisorState::Running)
                         {
-                            eprintln!("reload requested (SIGHUP)");
+                            svlogg!(LogLevel::Debug, "reload requested");
                             match reload_services(
                                 &mut service_registry,
                                 &args.config_path,
                                 &mut service_id_generator,
                                 &original_sigset,
                             ) {
-                                Ok(()) => {
-                                    eprintln!("finished reloading services")
-                                }
-                                Err(_) => eprintln!(
+                                Ok(()) => svlogg!(
+                                    LogLevel::Info,
+                                    "finished reloading services"
+                                ),
+                                Err(_) => svlogg!(
+                                    LogLevel::Error,
                                     "failed reading new configuration"
                                 ),
                             }
@@ -184,7 +195,10 @@ fn main() -> std::io::Result<()> {
                                     .services()
                                     .all(|svc| svc.is_stopped())
                             {
-                                eprintln!("all services stopped, exiting");
+                                svlogg!(
+                                    LogLevel::Info,
+                                    "all services stopped, exiting"
+                                );
                                 break 'outer;
                             }
                         }
@@ -192,7 +206,7 @@ fn main() -> std::io::Result<()> {
                             || signo.cast_signed() == libc::SIGTERM
                         {
                             if sv_state == SupervisorState::Running {
-                                eprintln!("shutdown requested");
+                                svlogg!(LogLevel::Info, "shutdown requested");
                                 sv_state = SupervisorState::ShutdownRequested;
                                 for svc in service_registry.services_mut() {
                                     stop_service(svc)?;
@@ -202,7 +216,10 @@ fn main() -> std::io::Result<()> {
                                 .services()
                                 .all(|svc| svc.is_stopped())
                             {
-                                eprintln!("all services stopped, exiting");
+                                svlogg!(
+                                    LogLevel::Info,
+                                    "all services stopped, exiting"
+                                );
                                 break 'outer;
                             }
                         }
@@ -244,11 +261,13 @@ fn main() -> std::io::Result<()> {
                     }
                     Ok(None) => {}
                     Err(ControlError::InvalidCommand(e)) => {
-                        eprintln!("invalid command: {}", e);
+                        svlogg!(LogLevel::Error, "invalid command: {}", e)
                     }
                     Err(ControlError::Io(e)) => return Err(e),
                 },
-                other => eprintln!("unknown epoll event id={}", other),
+                other => {
+                    svlogg!(LogLevel::Warn, "unknown epoll event id={}", other)
+                }
             }
         }
     }
