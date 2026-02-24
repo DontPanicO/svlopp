@@ -83,6 +83,16 @@ pub enum ControlOp {
     Restart = OP_RESTART,
 }
 
+impl std::fmt::Display for ControlOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stop => write!(f, "stop"),
+            Self::Start => write!(f, "start"),
+            Self::Restart => write!(f, "restart"),
+        }
+    }
+}
+
 /// Command wire-format representation
 #[derive(Debug, Clone, Copy)]
 pub struct ControlCommand {
