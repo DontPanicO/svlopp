@@ -179,9 +179,10 @@ fn main() -> std::io::Result<()> {
                                     LogLevel::Info,
                                     "finished reloading services"
                                 ),
-                                Err(_) => svlogg!(
+                                Err(e) => svlogg!(
                                     LogLevel::Error,
-                                    "failed reading new configuration"
+                                    "failed realoding services: {}",
+                                    e,
                                 ),
                             }
                         }
@@ -209,7 +210,14 @@ fn main() -> std::io::Result<()> {
                                 svlogg!(LogLevel::Info, "shutdown requested");
                                 sv_state = SupervisorState::ShutdownRequested;
                                 for svc in service_registry.services_mut() {
-                                    stop_service(svc)?;
+                                    if let Err(e) = stop_service(svc) {
+                                        svlogg!(
+                                            LogLevel::Error,
+                                            "failed to stop service '{}': {}",
+                                            svc.name,
+                                            e
+                                        );
+                                    }
                                 }
                             }
                             if service_registry
@@ -239,7 +247,14 @@ fn main() -> std::io::Result<()> {
                             ServiceState::Stopping(kill_deadline)
                                 if now >= kill_deadline =>
                             {
-                                force_kill_service(svc)?;
+                                if let Err(e) = force_kill_service(svc) {
+                                    svlogg!(
+                                        LogLevel::Error,
+                                        "failed to kille service '{}': {}",
+                                        svc.name,
+                                        e
+                                    );
+                                }
                             }
                             _ => {}
                         }
@@ -247,12 +262,19 @@ fn main() -> std::io::Result<()> {
                 }
                 ID_PFD => match read_control_command(pfd.as_fd()) {
                     Ok(Some(cmd)) => {
-                        apply_control_op(
+                        if let Err(e) = apply_control_op(
                             &mut service_registry,
                             cmd.service_id,
                             cmd.op,
                             &original_sigset,
-                        )?;
+                        ) {
+                            svlogg!(
+                                LogLevel::Error,
+                                "failed to {} service: {}",
+                                cmd.op,
+                                e
+                            );
+                        }
                         flush_status_file(
                             &service_registry,
                             &mut status_buf,
