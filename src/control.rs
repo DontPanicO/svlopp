@@ -109,7 +109,7 @@ impl ControlCommand {
 
 /// Read a command from `fd`.
 ///
-/// TODO: with 9-byte frames, a signle pipe buffer can hold thousands of
+/// TODO: with 9-byte frames, a single pipe buffer can hold thousands of
 /// commands. Currently we read one command per epoll wake (not losing them
 /// since it's level-triggered): if that becomes a bottleneck we could
 /// add a `read_control_command_batch` function to consume more commands

@@ -140,7 +140,7 @@ impl SignalfdSiginfo {
     /// data and can only be used to get a mutable pointer
     /// with `as_mut_ptr`. This is intented for usage with
     /// `libc::read`, to which the mutable pointer is passed.
-    /// Any other method call before a successfull call to
+    /// Any other method call before a successful call to
     /// `libc::read` is UB.
     #[inline(always)]
     pub fn empty() -> Self {

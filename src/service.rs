@@ -131,7 +131,7 @@ pub enum ServiceState {
     /// This is the initial state for all
     /// services
     Stopped(ServiceStopReason),
-    /// The serivce has been started and
+    /// The service has been started and
     /// is now running
     Running,
     /// The service is stopping.
@@ -252,7 +252,6 @@ impl ServiceIdGen {
 
     /// Returns an `Option` with the currently holded
     /// value - zero extended to 64-bit - and increment
-    /// it by one. If incrementing causes an overflo and increment
     /// it by one. If incrementing causes an overflow
     /// it returns `None`
     #[inline(always)]

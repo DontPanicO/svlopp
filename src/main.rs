@@ -61,8 +61,8 @@ fn main() -> std::io::Result<()> {
     let mut sv_state = SupervisorState::default();
 
     // set the `child subreaper` attribute. `rustix::process::set_child_subreaper`
-    // takes an `Option<Pid>`, which is odd since the kernel expects a `long`
-    // (non-zero sets the attribut, zero unsets it). Presumably this id done
+    // takes an `Option<Pid>`, which is odd since the kernel expects a long
+    // (non-zero sets the attribute, zero unsets it). Presumably this is done
     // because `None` maps to zero, while `rustix::process::Pid` guarantees a
     // non-zero value
     unsafe { set_child_subreaper(Some(Pid::from_raw_unchecked(1)))? };
