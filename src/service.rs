@@ -494,6 +494,8 @@ pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()
 
 /// Stop a service by calling `kill(pid, SIGTERM)` and marks it as
 /// stopping by setting state to `ServiceState::Stopping`.
+/// This is a state transition: it only acts on `ServiceState::Running`
+/// services and is a no-op for any other state
 pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running => {
@@ -509,14 +511,13 @@ pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     }
 }
 
-/// Kill a service with `SIGKILL`
+/// Send `SIGKILL` to a service process. This is pure mechanism with no state
+/// transition: it sends the signal if a pid is present and returns.
+/// The caller is responsible for ensuring the state transition if required
+/// (e.g. if calling it against a `ServiceState::Running` service).
 pub(crate) fn force_kill_service(svc: &Service) -> io::Result<()> {
     if let Some(pid) = svc.pid {
-        match kill_process(pid, Signal::KILL) {
-            Ok(()) => return Ok(()),
-            Err(e) if e == rustix::io::Errno::SRCH => return Ok(()),
-            Err(e) => return Err(e.into()),
-        }
+        kill_process(pid, Signal::KILL)?;
     }
     Ok(())
 }
