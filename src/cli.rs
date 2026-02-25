@@ -29,11 +29,10 @@ pub(crate) fn parse() -> CliArgs {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--run-dir" => {
-                run_dir =
-                    Some(PathBuf::from(args.next().unwrap_or_else(|| {
-                        eprintln!("--run-dir requires a value");
-                        usage();
-                    })));
+                run_dir = Some(PathBuf::from(args.next().unwrap_or_else(|| {
+                    eprintln!("--run-dir requires a value");
+                    usage();
+                })));
             }
             "--help" => usage(),
             "--log-level" => {

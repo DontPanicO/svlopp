@@ -16,9 +16,7 @@ use std::{
 
 use rustix::{
     fs::{Mode, OFlags, open},
-    process::{
-        Pid, Signal, WaitOptions, WaitStatus, chdir, kill_process, wait,
-    },
+    process::{Pid, Signal, WaitOptions, WaitStatus, chdir, kill_process, wait},
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
 use serde::Deserialize;
@@ -265,9 +263,7 @@ impl ServiceIdGen {
 /// Pending action to be executed when a service stops.
 ///
 /// Used during reload to defer actions for services that are
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub(crate) enum ServicePendingAction {
     /// No pending action to perform
     #[default]
@@ -298,11 +294,7 @@ pub(crate) struct Service {
 
 impl Service {
     #[inline(always)]
-    pub(crate) fn new(
-        id: u64,
-        name: String,
-        config: ServiceConfig,
-    ) -> io::Result<Self> {
+    pub(crate) fn new(id: u64, name: String, config: ServiceConfig) -> io::Result<Self> {
         let argv = config.build_svc_argv()?;
         let envp = config.build_svc_envp()?;
         Ok(Self {
@@ -333,10 +325,7 @@ impl Service {
 
     /// Update the service config and rebuild argv
     #[inline(always)]
-    pub(crate) fn update_config(
-        &mut self,
-        config: ServiceConfig,
-    ) -> io::Result<()> {
+    pub(crate) fn update_config(&mut self, config: ServiceConfig) -> io::Result<()> {
         self.argv = config.build_svc_argv()?;
         self.envp = config.build_svc_envp()?;
         self.config = config;
@@ -351,26 +340,21 @@ impl Service {
     }
 
     #[inline(always)]
-    pub(crate) fn format_status_line(
-        &self,
-        w: &mut impl fmt::Write,
-    ) -> fmt::Result {
+    pub(crate) fn format_status_line(&self, w: &mut impl fmt::Write) -> fmt::Result {
         match self.state {
-            ServiceState::Running | ServiceState::Stopping(_) => {
-                match self.pid {
-                    Some(p) => write!(
-                        w,
-                        "{} {} {} {}",
-                        self.name,
-                        self.id,
-                        self.state,
-                        p.as_raw_nonzero()
-                    ),
-                    None => {
-                        write!(w, "{} {} {} -", self.name, self.id, self.state)
-                    }
+            ServiceState::Running | ServiceState::Stopping(_) => match self.pid {
+                Some(p) => write!(
+                    w,
+                    "{} {} {} {}",
+                    self.name,
+                    self.id,
+                    self.state,
+                    p.as_raw_nonzero()
+                ),
+                None => {
+                    write!(w, "{} {} {} -", self.name, self.id, self.state)
                 }
-            }
+            },
             ServiceState::Stopped(_) => {
                 write!(w, "{} {} {}", self.name, self.id, self.state)
             }
@@ -381,8 +365,7 @@ impl Service {
     pub(crate) fn debug_assert_invariants(&self) {
         debug_assert!(
             match self.state {
-                ServiceState::Running | ServiceState::Stopping(_) =>
-                    self.pid.is_some(),
+                ServiceState::Running | ServiceState::Stopping(_) => self.pid.is_some(),
                 ServiceState::Stopped(_) => self.pid.is_none(),
             },
             "service '{}' invariant violated: state={:?}, pid={:?}",
@@ -403,10 +386,7 @@ impl Service {
 ///
 /// It is intended to be called in the child arm of a fork, before execvp, so it must
 /// not perform any non async-signal-safe operation
-fn setup_child_stdio(
-    devnull_fd: BorrowedFd,
-    log_fd: Option<BorrowedFd>,
-) -> rustix::io::Result<()> {
+fn setup_child_stdio(devnull_fd: BorrowedFd, log_fd: Option<BorrowedFd>) -> rustix::io::Result<()> {
     dup2_stdin(devnull_fd)?;
     match log_fd {
         Some(fd) => {
@@ -474,12 +454,8 @@ fn child_exec(
 /// TODO: Currently we're redirecting `/dev/std*` to dev null
 /// in the child processes, but we have to decide what to do
 /// with it
-pub(crate) fn start_service(
-    svc: &mut Service,
-    sigset: &SigSet,
-) -> io::Result<()> {
-    let devnull_fd =
-        open("/dev/null", OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())?;
+pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
+    let devnull_fd = open("/dev/null", OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())?;
     let log_fd = svc
         .config
         .log_file_path
@@ -487,10 +463,7 @@ pub(crate) fn start_service(
         .map(|p| {
             open(
                 p,
-                OFlags::WRONLY
-                    | OFlags::CREATE
-                    | OFlags::APPEND
-                    | OFlags::CLOEXEC,
+                OFlags::WRONLY | OFlags::CREATE | OFlags::APPEND | OFlags::CLOEXEC,
                 Mode::from_bits_truncate(0o644),
             )
         })
@@ -524,8 +497,7 @@ pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
                 None => return Ok(()),
             };
             kill_process(pid, Signal::TERM)?;
-            svc.state =
-                ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
+            svc.state = ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
             svc.debug_assert_invariants();
             Ok(())
         }
@@ -621,9 +593,7 @@ impl ServiceRegistry {
     }
 
     #[inline(always)]
-    pub(crate) fn services(
-        &self,
-    ) -> std::collections::hash_map::Values<'_, u64, Service> {
+    pub(crate) fn services(&self) -> std::collections::hash_map::Values<'_, u64, Service> {
         self.services_map.values()
     }
 
@@ -687,28 +657,16 @@ pub(crate) fn reload_services(
         {
             match svc.state {
                 ServiceState::Stopped(_) => {
-                    svlogg!(
-                        LogLevel::Info,
-                        "removing stopped service '{}'",
-                        name
-                    );
+                    svlogg!(LogLevel::Info, "removing stopped service '{}'", name);
                     svc.pending_action = ServicePendingAction::None;
                     let _ = registry.remove_service(svc_id);
                 }
                 ServiceState::Stopping(_) => {
-                    svlogg!(
-                        LogLevel::Info,
-                        "stopping service '{}' for removal",
-                        name
-                    );
+                    svlogg!(LogLevel::Info, "stopping service '{}' for removal", name);
                     svc.pending_action = ServicePendingAction::Remove;
                 }
                 ServiceState::Running => {
-                    svlogg!(
-                        LogLevel::Info,
-                        "stopping service '{}' for removal",
-                        name
-                    );
+                    svlogg!(LogLevel::Info, "stopping service '{}' for removal", name);
                     svc.pending_action = ServicePendingAction::Remove;
                     stop_service(svc)?;
                 }
@@ -741,11 +699,7 @@ pub(crate) fn reload_services(
                 if let Some(svc) = registry.service_mut(svc_id)
                     && (svc.config != cfg)
                 {
-                    svlogg!(
-                        LogLevel::Debug,
-                        "config changed for service {}",
-                        name
-                    );
+                    svlogg!(LogLevel::Debug, "config changed for service {}", name);
                     // Update the configuration immediately.
                     // The currently running process may still be using the old config
                     // for a while. This is intentional: desired state wins over current
@@ -764,19 +718,11 @@ pub(crate) fn reload_services(
                             }
                         }
                         ServiceState::Stopping(_) => {
-                            svlogg!(
-                                LogLevel::Info,
-                                "service '{}' will be restarted",
-                                name
-                            );
+                            svlogg!(LogLevel::Info, "service '{}' will be restarted", name);
                             svc.pending_action = ServicePendingAction::Restart;
                         }
                         ServiceState::Running => {
-                            svlogg!(
-                                LogLevel::Info,
-                                "service '{}' will be restarted",
-                                name
-                            );
+                            svlogg!(LogLevel::Info, "service '{}' will be restarted", name);
                             svc.pending_action = ServicePendingAction::Restart;
                             stop_service(svc)?;
                         }
@@ -849,13 +795,8 @@ pub(crate) fn apply_control_op(
                     }
                 }
                 ServiceState::Running => {
-                    if matches!(svc.pending_action, ServicePendingAction::None)
-                    {
-                        svlogg!(
-                            LogLevel::Info,
-                            "service '{}' will be restarted",
-                            svc.name
-                        );
+                    if matches!(svc.pending_action, ServicePendingAction::None) {
+                        svlogg!(LogLevel::Info, "service '{}' will be restarted", svc.name);
                         svc.pending_action = ServicePendingAction::Restart;
                         stop_service(svc)?;
                     }
@@ -879,24 +820,20 @@ pub(crate) fn apply_control_op(
 /// the caller to specify options. Here we're using `WNOHANG` to avoid actually blocking
 /// if no status information is available immediately when calling. In this way
 /// `waitpid(-1, ...)` differs completely from `wait`
-pub(crate) fn handle_sigchld(
-    registry: &mut ServiceRegistry,
-    sigset: &SigSet,
-) -> io::Result<()> {
+pub(crate) fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) -> io::Result<()> {
     loop {
         match wait(WaitOptions::NOHANG) {
             Ok(Some((pid, status))) => {
-                if let Some(exit_reason) = ExitReason::from_wait_status(status)
-                {
+                if let Some(exit_reason) = ExitReason::from_wait_status(status) {
                     match registry.take_by_pid(pid) {
                         Some(svc) => {
                             svc.pid = None;
-                            let stop_reason = ServiceStopReason::from_exit_reason_and_service_state(exit_reason, svc.state);
+                            let stop_reason = ServiceStopReason::from_exit_reason_and_service_state(
+                                exit_reason,
+                                svc.state,
+                            );
                             debug_assert!(
-                                !matches!(
-                                    stop_reason,
-                                    ServiceStopReason::NeverStarted
-                                ),
+                                !matches!(stop_reason, ServiceStopReason::NeverStarted),
                                 "reaped service '{}' that was never started",
                                 svc.name
                             );
@@ -909,12 +846,9 @@ pub(crate) fn handle_sigchld(
                             );
                             let svc_id = svc.id;
                             let pending = match svc.take_pending_action() {
-                                ServicePendingAction::None => match stop_reason
-                                {
+                                ServicePendingAction::None => match stop_reason {
                                     ServiceStopReason::SupervisorTerminated
-                                    | ServiceStopReason::NeverStarted => {
-                                        ServicePendingAction::None
-                                    }
+                                    | ServiceStopReason::NeverStarted => ServicePendingAction::None,
                                     _ => svc.config.fallback_pending_action,
                                 },
                                 p => p,
@@ -922,38 +856,29 @@ pub(crate) fn handle_sigchld(
                             match pending {
                                 ServicePendingAction::None => {}
                                 ServicePendingAction::Remove => {
-                                    if let Some(svc) =
-                                        registry.remove_service(svc_id)
-                                    {
-                                        svlogg!(
-                                            LogLevel::Info,
-                                            "removed service '{}'",
-                                            svc.name
-                                        );
+                                    if let Some(svc) = registry.remove_service(svc_id) {
+                                        svlogg!(LogLevel::Info, "removed service '{}'", svc.name);
                                     };
                                 }
-                                ServicePendingAction::Restart => {
-                                    match start_service(svc, sigset) {
-                                        Ok(()) => {
-                                            svlogg!(
-                                                LogLevel::Info,
-                                                "restarted service '{}' with pid {:?}",
-                                                svc.name,
-                                                svc.pid,
-                                            );
-                                            if let Some(pid) = svc.pid {
-                                                registry
-                                                    .register_pid(pid, svc_id);
-                                            }
-                                        }
-                                        Err(e) => svlogg!(
-                                            LogLevel::Error,
-                                            "failed to restart service '{}': {}",
+                                ServicePendingAction::Restart => match start_service(svc, sigset) {
+                                    Ok(()) => {
+                                        svlogg!(
+                                            LogLevel::Info,
+                                            "restarted service '{}' with pid {:?}",
                                             svc.name,
-                                            e
-                                        ),
+                                            svc.pid,
+                                        );
+                                        if let Some(pid) = svc.pid {
+                                            registry.register_pid(pid, svc_id);
+                                        }
                                     }
-                                }
+                                    Err(e) => svlogg!(
+                                        LogLevel::Error,
+                                        "failed to restart service '{}': {}",
+                                        svc.name,
+                                        e
+                                    ),
+                                },
                             }
                         }
                         None => svlogg!(
@@ -972,15 +897,11 @@ pub(crate) fn handle_sigchld(
                                 status
                             )
                         }
-                        None => svlogg!(
-                            LogLevel::Warn,
-                            "`waitpid` got unknown pid: {}",
-                            pid
-                        ),
+                        None => svlogg!(LogLevel::Warn, "`waitpid` got unknown pid: {}", pid),
                     }
                 }
             }
-            Ok(None) => break, // no more childs ready
+            Ok(None) => break,                      // no more childs ready
             Err(rustix::io::Errno::CHILD) => break, // no child
             Err(e) => return Err(e.into()),
         }

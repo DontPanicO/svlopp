@@ -42,11 +42,7 @@ pub(crate) fn cvt<T: RetCode>(ret: T) -> rustix::io::Result<T> {
 pub(crate) fn is_crash_signal(sig: i32) -> bool {
     matches!(
         sig,
-        libc::SIGSEGV
-            | libc::SIGABRT
-            | libc::SIGFPE
-            | libc::SIGILL
-            | libc::SIGBUS
+        libc::SIGSEGV | libc::SIGABRT | libc::SIGFPE | libc::SIGILL | libc::SIGBUS
     )
 }
 

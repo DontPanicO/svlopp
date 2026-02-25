@@ -55,10 +55,7 @@ impl StatusFilePath {
     }
 }
 
-pub(crate) fn write_status_file(
-    path: &StatusFilePath,
-    content: &str,
-) -> io::Result<()> {
+pub(crate) fn write_status_file(path: &StatusFilePath, content: &str) -> io::Result<()> {
     let fd = open(
         path.tmp_path(),
         OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::CLOEXEC,

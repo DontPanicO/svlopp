@@ -21,13 +21,11 @@ mod utils;
 use control::{ControlError, create_control_fifo, read_control_command};
 use logging::{LogLevel, set_log_level};
 use service::{
-    Service, ServiceConfigData, ServiceIdGen, ServiceRegistry, ServiceState,
-    apply_control_op, force_kill_service, handle_sigchld, reload_services,
-    start_service, stop_service,
+    Service, ServiceConfigData, ServiceIdGen, ServiceRegistry, ServiceState, apply_control_op,
+    force_kill_service, handle_sigchld, reload_services, start_service, stop_service,
 };
 use signalfd::{
-    SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals,
-    read_signalfd_batch, signalfd,
+    SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals, read_signalfd_batch, signalfd,
 };
 use status::{StatusFilePath, write_status_file};
 use timerfd::{create_timerfd_1s_periodic, read_timerfd};
@@ -53,11 +51,7 @@ pub enum SupervisorState {
     ShutdownRequested,
 }
 
-fn flush_status_file(
-    registry: &ServiceRegistry,
-    buf: &mut String,
-    path: &StatusFilePath,
-) {
+fn flush_status_file(registry: &ServiceRegistry, buf: &mut String, path: &StatusFilePath) {
     buf.clear();
     match registry.format_status(buf) {
         Ok(()) => {
@@ -71,8 +65,7 @@ fn flush_status_file(
 
 fn main() -> std::io::Result<()> {
     let args = cli::parse();
-    let status_file_path =
-        StatusFilePath::new(args.run_dir.join(STATUS_FILE_PATH));
+    let status_file_path = StatusFilePath::new(args.run_dir.join(STATUS_FILE_PATH));
 
     set_log_level(args.log_level);
 
@@ -93,11 +86,9 @@ fn main() -> std::io::Result<()> {
     sigset.add(libc::SIGINT)?;
     block_thread_signals(&sigset)?;
 
-    let (pfd, _wr_pfd) =
-        create_control_fifo(&args.run_dir.join(CONTROL_PIPE_NAME))?;
+    let (pfd, _wr_pfd) = create_control_fifo(&args.run_dir.join(CONTROL_PIPE_NAME))?;
 
-    let sfd =
-        signalfd(&sigset, SignalfdFlags::CLOEXEC | SignalfdFlags::NONBLOCK)?;
+    let sfd = signalfd(&sigset, SignalfdFlags::CLOEXEC | SignalfdFlags::NONBLOCK)?;
 
     let tfd = create_timerfd_1s_periodic()?;
 
@@ -130,8 +121,7 @@ fn main() -> std::io::Result<()> {
 
     let mut service_id_generator = ServiceIdGen::new();
     let mut service_registry = ServiceRegistry::new();
-    let service_configs =
-        ServiceConfigData::from_config_file(&args.config_path)?;
+    let service_configs = ServiceConfigData::from_config_file(&args.config_path)?;
 
     for (name, cfg) in service_configs.services.into_iter() {
         service_registry.insert_service(Service::new(
@@ -179,8 +169,7 @@ fn main() -> std::io::Result<()> {
                 ID_SFD => {
                     // TODO: if we want to make sure to drain `sfd`, we could call
                     // `read_signalfd_batch` in a loop until it returns 0
-                    let siginfo_read =
-                        read_signalfd_batch(sfd.as_fd(), &mut siginfo_buf)?;
+                    let siginfo_read = read_signalfd_batch(sfd.as_fd(), &mut siginfo_buf)?;
                     for info in &siginfo_buf[..siginfo_read] {
                         let signo = info.signal();
                         if (signo.cast_signed() == libc::SIGHUP)
@@ -193,31 +182,18 @@ fn main() -> std::io::Result<()> {
                                 &mut service_id_generator,
                                 &original_sigset,
                             ) {
-                                Ok(()) => svlogg!(
-                                    LogLevel::Info,
-                                    "finished reloading services"
-                                ),
-                                Err(e) => svlogg!(
-                                    LogLevel::Error,
-                                    "failed reloading services: {}",
-                                    e,
-                                ),
+                                Ok(()) => svlogg!(LogLevel::Info, "finished reloading services"),
+                                Err(e) => {
+                                    svlogg!(LogLevel::Error, "failed reloading services: {}", e,)
+                                }
                             }
                         }
                         if signo.cast_signed() == libc::SIGCHLD {
-                            handle_sigchld(
-                                &mut service_registry,
-                                &original_sigset,
-                            )?;
+                            handle_sigchld(&mut service_registry, &original_sigset)?;
                             if (sv_state == SupervisorState::ShutdownRequested)
-                                && service_registry
-                                    .services()
-                                    .all(|svc| svc.is_stopped())
+                                && service_registry.services().all(|svc| svc.is_stopped())
                             {
-                                svlogg!(
-                                    LogLevel::Info,
-                                    "all services stopped, exiting"
-                                );
+                                svlogg!(LogLevel::Info, "all services stopped, exiting");
                                 break 'outer;
                             }
                         }
@@ -238,23 +214,13 @@ fn main() -> std::io::Result<()> {
                                     }
                                 }
                             }
-                            if service_registry
-                                .services()
-                                .all(|svc| svc.is_stopped())
-                            {
-                                svlogg!(
-                                    LogLevel::Info,
-                                    "all services stopped, exiting"
-                                );
+                            if service_registry.services().all(|svc| svc.is_stopped()) {
+                                svlogg!(LogLevel::Info, "all services stopped, exiting");
                                 break 'outer;
                             }
                         }
                     }
-                    flush_status_file(
-                        &service_registry,
-                        &mut status_buf,
-                        &status_file_path,
-                    );
+                    flush_status_file(&service_registry, &mut status_buf, &status_file_path);
                 }
                 ID_TFD => {
                     // `timerfd` is currently unused, read just to drain it
@@ -262,9 +228,7 @@ fn main() -> std::io::Result<()> {
                     let now = Instant::now();
                     for svc in service_registry.services() {
                         match svc.state {
-                            ServiceState::Stopping(kill_deadline)
-                                if now >= kill_deadline =>
-                            {
+                            ServiceState::Stopping(kill_deadline) if now >= kill_deadline => {
                                 if let Err(e) = force_kill_service(svc) {
                                     svlogg!(
                                         LogLevel::Error,
@@ -286,18 +250,9 @@ fn main() -> std::io::Result<()> {
                             cmd.op,
                             &original_sigset,
                         ) {
-                            svlogg!(
-                                LogLevel::Error,
-                                "failed to {} service: {}",
-                                cmd.op,
-                                e
-                            );
+                            svlogg!(LogLevel::Error, "failed to {} service: {}", cmd.op, e);
                         }
-                        flush_status_file(
-                            &service_registry,
-                            &mut status_buf,
-                            &status_file_path,
-                        );
+                        flush_status_file(&service_registry, &mut status_buf, &status_file_path);
                     }
                     Ok(None) => {}
                     Err(ControlError::InvalidCommand(e)) => {

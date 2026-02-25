@@ -76,9 +76,7 @@ pub(crate) fn block_thread_signals(sigset: &SigSet) -> rustix::io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn set_thread_signal_mask(
-    sigset: &SigSet,
-) -> rustix::io::Result<()> {
+pub(crate) fn set_thread_signal_mask(sigset: &SigSet) -> rustix::io::Result<()> {
     unsafe {
         cvt(libc::sigprocmask(
             libc::SIG_SETMASK,
@@ -91,10 +89,7 @@ pub(crate) fn set_thread_signal_mask(
 
 /// TODO: we're hardcoding fd to be -1, causing `signalfd` to only ask for
 /// a new file descriptor
-pub(crate) fn signalfd(
-    sigset: &SigSet,
-    flags: SignalfdFlags,
-) -> rustix::io::Result<OwnedFd> {
+pub(crate) fn signalfd(sigset: &SigSet, flags: SignalfdFlags) -> rustix::io::Result<OwnedFd> {
     unsafe {
         let fd = cvt(libc::signalfd(-1, sigset.as_ptr(), flags.bits() as _))?;
         Ok(OwnedFd::from_raw_fd(fd))
@@ -173,10 +168,7 @@ pub(crate) fn read_signalfd_batch(
         return Ok(0);
     }
     let bytes_buf = unsafe {
-        std::slice::from_raw_parts_mut(
-            buf.as_mut_ptr() as *mut u8,
-            std::mem::size_of_val(buf),
-        )
+        std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, std::mem::size_of_val(buf))
     };
     match rustix::io::read(fd, bytes_buf) {
         Ok(0) => Ok(0),

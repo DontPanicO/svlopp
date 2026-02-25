@@ -20,9 +20,7 @@ const WIRE_COMMAND_SIZE: usize = 9;
 ///
 /// A write end must be kept open to prevent the read end from receiving
 /// `EOF` when no other writers are open
-pub(crate) fn create_control_fifo(
-    path: &Path,
-) -> io::Result<(OwnedFd, OwnedFd)> {
+pub(crate) fn create_control_fifo(path: &Path) -> io::Result<(OwnedFd, OwnedFd)> {
     match mkfifoat(CWD, path, Mode::from_bits_truncate(0o600)) {
         Ok(()) => {}
         Err(e) if e == rustix::io::Errno::EXIST => {}
