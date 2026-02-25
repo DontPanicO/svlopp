@@ -348,19 +348,18 @@ impl Service {
     #[inline(always)]
     pub(crate) fn format_status_line(&self, w: &mut impl fmt::Write) -> fmt::Result {
         match self.state {
-            ServiceState::Running | ServiceState::Stopping(_) => match self.pid {
-                Some(p) => write!(
+            ServiceState::Running | ServiceState::Stopping(_) => {
+                write!(
                     w,
                     "{} {} {} {}",
                     self.name,
                     self.id,
                     self.state,
-                    p.as_raw_nonzero()
-                ),
-                None => {
-                    write!(w, "{} {} {} -", self.name, self.id, self.state)
-                }
-            },
+                    self.pid
+                        .expect("running service must have a pid")
+                        .as_raw_nonzero()
+                )
+            }
             ServiceState::Stopped(_) => {
                 write!(w, "{} {} {}", self.name, self.id, self.state)
             }
@@ -498,11 +497,10 @@ pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()
 pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running => {
-            let pid = match svc.pid {
-                Some(p) => p,
-                None => return Ok(()),
-            };
-            kill_process(pid, Signal::TERM)?;
+            kill_process(
+                svc.pid.expect("running service must have a pid"),
+                Signal::TERM,
+            )?;
             svc.state = ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
             svc.debug_assert_invariants();
             Ok(())
@@ -513,15 +511,14 @@ pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
 
 /// Kill a service with `SIGKILL`
 pub(crate) fn force_kill_service(svc: &Service) -> io::Result<()> {
-    let pid = match svc.pid {
-        Some(p) => p,
-        None => return Ok(()),
-    };
-    match kill_process(pid, Signal::KILL) {
-        Ok(()) => Ok(()),
-        Err(e) if e == rustix::io::Errno::SRCH => Ok(()),
-        Err(e) => Err(e.into()),
+    if let Some(pid) = svc.pid {
+        match kill_process(pid, Signal::KILL) {
+            Ok(()) => return Ok(()),
+            Err(e) if e == rustix::io::Errno::SRCH => return Ok(()),
+            Err(e) => return Err(e.into()),
+        }
     }
+    Ok(())
 }
 
 /// The services registry.
@@ -689,17 +686,15 @@ pub(crate) fn reload_services(
                     .ok_or_else(|| io::Error::other("service id overflow"))?;
                 let mut svc = Service::new(svc_id, name, cfg)?;
                 start_service(&mut svc, sigset)?;
+                let svc_pid = svc.pid.expect("running service must have a pid");
                 svlogg!(
                     LogLevel::Info,
-                    "started new service '{}' with pid {:?}",
+                    "started new service '{}' with pid {}",
                     svc.name,
-                    svc.pid
+                    svc_pid
                 );
-                let pid = svc.pid;
                 registry.insert_service(svc);
-                if let Some(svc_pid) = pid {
-                    registry.register_pid(svc_pid, svc_id);
-                }
+                registry.register_pid(svc_pid, svc_id);
             }
             Some(&svc_id) => {
                 if let Some(svc) = registry.service_mut(svc_id)
@@ -719,9 +714,8 @@ pub(crate) fn reload_services(
                                 name
                             );
                             start_service(svc, sigset)?;
-                            if let Some(pid) = svc.pid {
-                                registry.register_pid(pid, svc_id);
-                            }
+                            let svc_pid = svc.pid.expect("running service must have a pid");
+                            registry.register_pid(svc_pid, svc_id);
                         }
                         ServiceState::Stopping(_) => {
                             svlogg!(LogLevel::Info, "service '{}' will be restarted", name);
@@ -776,29 +770,27 @@ pub(crate) fn apply_control_op(
             ControlOp::Start => {
                 if matches!(svc.state, ServiceState::Stopped(_)) {
                     start_service(svc, sigset)?;
+                    let svc_pid = svc.pid.expect("running service must have a pid");
                     svlogg!(
                         LogLevel::Info,
-                        "started service '{}' with pid {:?}",
+                        "started service '{}' with pid {}",
                         svc.name,
-                        svc.pid
+                        svc_pid,
                     );
-                    if let Some(pid) = svc.pid {
-                        registry.register_pid(pid, svc_id);
-                    }
+                    registry.register_pid(svc_pid, svc_id);
                 }
             }
             ControlOp::Restart => match svc.state {
                 ServiceState::Stopped(_) => {
                     start_service(svc, sigset)?;
+                    let svc_pid = svc.pid.expect("running service must have a pid");
                     svlogg!(
                         LogLevel::Info,
-                        "started service '{}' with pid {:?}",
+                        "started service '{}' with pid {}",
                         svc.name,
-                        svc.pid
+                        svc_pid
                     );
-                    if let Some(pid) = svc.pid {
-                        registry.register_pid(pid, svc_id);
-                    }
+                    registry.register_pid(svc_pid, svc_id);
                 }
                 ServiceState::Running => {
                     if matches!(svc.pending_action, ServicePendingAction::None) {
@@ -868,15 +860,15 @@ pub(crate) fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) ->
                                 }
                                 ServicePendingAction::Restart => match start_service(svc, sigset) {
                                     Ok(()) => {
+                                        let svc_pid =
+                                            svc.pid.expect("running service must have a pid");
                                         svlogg!(
                                             LogLevel::Info,
                                             "restarted service '{}' with pid {:?}",
                                             svc.name,
-                                            svc.pid,
+                                            svc_pid,
                                         );
-                                        if let Some(pid) = svc.pid {
-                                            registry.register_pid(pid, svc_id);
-                                        }
+                                        registry.register_pid(svc_pid, svc_id);
                                     }
                                     Err(e) => svlogg!(
                                         LogLevel::Error,

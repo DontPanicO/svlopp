@@ -139,15 +139,14 @@ fn main() -> std::io::Result<()> {
         if let Some(svc) = service_registry.service_mut(svc_id) {
             match start_service(svc, &original_sigset) {
                 Ok(()) => {
+                    let pid = svc.pid.expect("running service must have a pid");
                     svlogg!(
                         LogLevel::Info,
                         "started service '{}' with pid {:?}",
                         svc.name,
-                        svc.pid
+                        pid,
                     );
-                    if let Some(pid) = svc.pid {
-                        service_registry.register_pid(pid, svc_id);
-                    }
+                    service_registry.register_pid(pid, svc_id);
                 }
                 Err(e) => {
                     svlogg!(
