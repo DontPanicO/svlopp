@@ -50,7 +50,7 @@ impl std::fmt::Display for ControlProtocolError {
         match self {
             Self::InvalidOp(op) => write!(f, "invalid opcode: 0x{:02x}", op),
             Self::PartialFrame(n) => {
-                write!(f, "parital control frame ({} bytes)", n)
+                write!(f, "partial control frame ({} bytes)", n)
             }
         }
     }

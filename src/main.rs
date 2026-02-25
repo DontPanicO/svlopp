@@ -47,7 +47,7 @@ fn flush_status_file(
                 svlogg!(LogLevel::Error, "failed to write status file: {}", e);
             }
         }
-        Err(_) => svlogg!(LogLevel::Error, "failed to fomrat status"),
+        Err(_) => svlogg!(LogLevel::Error, "failed to format status"),
     }
 }
 
@@ -181,7 +181,7 @@ fn main() -> std::io::Result<()> {
                                 ),
                                 Err(e) => svlogg!(
                                     LogLevel::Error,
-                                    "failed realoding services: {}",
+                                    "failed reloading services: {}",
                                     e,
                                 ),
                             }
@@ -250,7 +250,7 @@ fn main() -> std::io::Result<()> {
                                 if let Err(e) = force_kill_service(svc) {
                                     svlogg!(
                                         LogLevel::Error,
-                                        "failed to kille service '{}': {}",
+                                        "failed to kill service '{}': {}",
                                         svc.name,
                                         e
                                     );

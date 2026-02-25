@@ -761,7 +761,7 @@ pub fn reload_services(
                         ServiceState::Stopping(_) => {
                             svlogg!(
                                 LogLevel::Info,
-                                "service '{}' will be restared",
+                                "service '{}' will be restarted",
                                 name
                             );
                             svc.pending_action = ServicePendingAction::Restart;
@@ -769,7 +769,7 @@ pub fn reload_services(
                         ServiceState::Running => {
                             svlogg!(
                                 LogLevel::Info,
-                                "service '{}' will be restared",
+                                "service '{}' will be restarted",
                                 name
                             );
                             svc.pending_action = ServicePendingAction::Restart;
