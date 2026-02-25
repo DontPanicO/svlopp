@@ -9,23 +9,28 @@ use rustix::{
     process::{Pid, set_child_subreaper},
 };
 
-use svlopp::{
-    SupervisorState, cli,
-    control::{ControlError, create_control_fifo, read_control_command},
-    logging::{LogLevel, set_log_level},
-    service::{
-        Service, ServiceConfigData, ServiceIdGen, ServiceRegistry,
-        ServiceState, apply_control_op, force_kill_service, handle_sigchld,
-        reload_services, start_service, stop_service,
-    },
-    signalfd::{
-        SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals,
-        read_signalfd_batch, signalfd,
-    },
-    status::{StatusFilePath, write_status_file},
-    svlogg,
-    timerfd::{create_timerfd_1s_periodic, read_timerfd},
+mod cli;
+mod control;
+mod logging;
+mod service;
+mod signalfd;
+mod status;
+mod timerfd;
+mod utils;
+
+use control::{ControlError, create_control_fifo, read_control_command};
+use logging::{LogLevel, set_log_level};
+use service::{
+    Service, ServiceConfigData, ServiceIdGen, ServiceRegistry, ServiceState,
+    apply_control_op, force_kill_service, handle_sigchld, reload_services,
+    start_service, stop_service,
 };
+use signalfd::{
+    SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals,
+    read_signalfd_batch, signalfd,
+};
+use status::{StatusFilePath, write_status_file};
+use timerfd::{create_timerfd_1s_periodic, read_timerfd};
 
 const ID_SFD: u64 = 1;
 const ID_TFD: u64 = 2;
@@ -34,6 +39,19 @@ const SIGINFO_BUF_LEN: usize = 16;
 const EVENTS_BUF_LEN: usize = 16;
 const CONTROL_PIPE_NAME: &str = "control";
 const STATUS_FILE_PATH: &str = "status";
+
+/// The status of the supervisor. When a shutdown is requested
+/// the supervisor may not stop immediately since it has to
+/// take care of any alive child process. For this reason
+/// we don't break the loop immediately and instead we want to
+/// set a flag (e.g. the state) to indicate that we want to
+/// break it as soon as all child processes have been terminated.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SupervisorState {
+    #[default]
+    Running,
+    ShutdownRequested,
+}
 
 fn flush_status_file(
     registry: &ServiceRegistry,

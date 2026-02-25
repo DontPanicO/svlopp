@@ -37,7 +37,7 @@ const SERVICE_STOP_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Process exit reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ExitReason {
+pub(crate) enum ExitReason {
     /// Process exited with a status code
     Exited(i32),
     /// Process signaled
@@ -45,7 +45,7 @@ pub enum ExitReason {
 }
 
 impl ExitReason {
-    pub fn from_wait_status(status: WaitStatus) -> Option<Self> {
+    pub(crate) fn from_wait_status(status: WaitStatus) -> Option<Self> {
         if status.exited() {
             Some(Self::Exited(status.exit_status().unwrap_or(-1)))
         } else if status.signaled() {
@@ -59,7 +59,7 @@ impl ExitReason {
 /// Service stop reason. It differs from `ExitReason` by being
 /// specific to supervisor logic and abstraction.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ServiceStopReason {
+pub(crate) enum ServiceStopReason {
     /// Service has never started
     #[default]
     NeverStarted,
@@ -96,7 +96,7 @@ impl fmt::Display for ServiceStopReason {
 }
 
 impl ServiceStopReason {
-    pub fn from_exit_reason_and_service_state(
+    pub(crate) fn from_exit_reason_and_service_state(
         exit_reason: ExitReason,
         svc_state: ServiceState,
     ) -> Self {
@@ -126,7 +126,7 @@ impl ServiceStopReason {
 /// All possible states in which a service
 /// can be at any moment
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ServiceState {
+pub(crate) enum ServiceState {
     /// The service is stopped.
     /// This is the initial state for all
     /// services
@@ -160,24 +160,24 @@ impl fmt::Display for ServiceState {
 
 /// Service configuration
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
-pub struct ServiceConfig {
+pub(crate) struct ServiceConfig {
     /// Path to the binary or binary name if in `PATH`
-    pub command: String,
+    pub(crate) command: String,
     /// Binary arguments
     #[serde(default)]
-    pub args: Vec<String>,
+    pub(crate) args: Vec<String>,
     /// Optional environment to replace the parent one
     #[serde(default)]
-    pub env: Option<HashMap<String, String>>,
+    pub(crate) env: Option<HashMap<String, String>>,
     /// Optional working directory for the service process.
     /// If `None` the service inherits the current working directory
     #[serde(default)]
-    pub working_directory: Option<PathBuf>,
+    pub(crate) working_directory: Option<PathBuf>,
     /// Optional file to redirect the service `stdout` and
     /// `stderr` to.
     /// If `None` they are piped to `/dev/null`
     #[serde(default)]
-    pub log_file_path: Option<PathBuf>,
+    pub(crate) log_file_path: Option<PathBuf>,
     /// Fallback pending action to take.
     /// This allows to define restart behavior (e.g.
     /// if a service exits, restart it), but only
@@ -187,7 +187,7 @@ pub struct ServiceConfig {
     /// reason `ServiceStopReason::SupervisorTerminated`
     #[serde(rename = "on_exit")]
     #[serde(default)]
-    pub fallback_pending_action: ServicePendingAction,
+    pub(crate) fallback_pending_action: ServicePendingAction,
 }
 
 impl ServiceConfig {
@@ -223,13 +223,13 @@ impl ServiceConfig {
 /// file, where the string represent the service name.
 #[repr(transparent)]
 #[derive(Debug, Deserialize)]
-pub struct ServiceConfigData {
-    pub services: HashMap<String, ServiceConfig>,
+pub(crate) struct ServiceConfigData {
+    pub(crate) services: HashMap<String, ServiceConfig>,
 }
 
 impl ServiceConfigData {
     #[inline(always)]
-    pub fn from_config_file(path: &Path) -> io::Result<Self> {
+    pub(crate) fn from_config_file(path: &Path) -> io::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         toml::from_str(&content).map_err(|e| io::Error::other(e.message()))
     }
@@ -242,11 +242,11 @@ impl ServiceConfigData {
 /// holds an `u16`.
 #[repr(transparent)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ServiceIdGen(u16);
+pub(crate) struct ServiceIdGen(u16);
 
 impl ServiceIdGen {
     #[inline(always)]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
@@ -255,7 +255,7 @@ impl ServiceIdGen {
     /// it by one. If incrementing causes an overflow
     /// it returns `None`
     #[inline(always)]
-    pub fn nextval(&mut self) -> Option<u64> {
+    pub(crate) fn nextval(&mut self) -> Option<u64> {
         let value = self.0 as u64;
         self.0 = self.0.checked_add(1)?;
         Some(value)
@@ -268,7 +268,7 @@ impl ServiceIdGen {
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize,
 )]
-pub enum ServicePendingAction {
+pub(crate) enum ServicePendingAction {
     /// No pending action to perform
     #[default]
     None,
@@ -285,20 +285,20 @@ pub enum ServicePendingAction {
 /// (e.g. include the `pid` in the state instead
 /// of having it as a separate parameter)
 #[derive(Debug, Clone)]
-pub struct Service {
-    pub id: u64,
-    pub name: String,
-    pub config: ServiceConfig,
-    pub argv: Vec<CString>,
-    pub envp: Option<Vec<CString>>,
-    pub pid: Option<Pid>,
-    pub state: ServiceState,
-    pub pending_action: ServicePendingAction,
+pub(crate) struct Service {
+    pub(crate) id: u64,
+    pub(crate) name: String,
+    pub(crate) config: ServiceConfig,
+    pub(crate) argv: Vec<CString>,
+    pub(crate) envp: Option<Vec<CString>>,
+    pub(crate) pid: Option<Pid>,
+    pub(crate) state: ServiceState,
+    pub(crate) pending_action: ServicePendingAction,
 }
 
 impl Service {
     #[inline(always)]
-    pub fn new(
+    pub(crate) fn new(
         id: u64,
         name: String,
         config: ServiceConfig,
@@ -317,27 +317,26 @@ impl Service {
         })
     }
 
-    #[inline(always)]
-    pub fn set_pid(&mut self, pid: Pid) {
-        self.pid = Some(pid);
-    }
-
     /// TODO: we might want logic to enforce some contract (e.g.
     /// a state machine) instead of letting the caller set
     /// an arbitrary value for state
+    #[allow(dead_code)]
     #[inline(always)]
-    pub fn set_state(&mut self, state: ServiceState) {
+    pub(crate) fn set_state(&mut self, state: ServiceState) {
         self.state = state;
     }
 
     #[inline(always)]
-    pub fn is_stopped(&self) -> bool {
+    pub(crate) fn is_stopped(&self) -> bool {
         matches!(self.state, ServiceState::Stopped(_))
     }
 
     /// Update the service config and rebuild argv
     #[inline(always)]
-    pub fn update_config(&mut self, config: ServiceConfig) -> io::Result<()> {
+    pub(crate) fn update_config(
+        &mut self,
+        config: ServiceConfig,
+    ) -> io::Result<()> {
         self.argv = config.build_svc_argv()?;
         self.envp = config.build_svc_envp()?;
         self.config = config;
@@ -347,12 +346,15 @@ impl Service {
     /// Returns the `ServicePendingAction` and leave `ServicePendingAction::None`
     /// in its place
     #[inline(always)]
-    pub fn take_pending_action(&mut self) -> ServicePendingAction {
+    pub(crate) fn take_pending_action(&mut self) -> ServicePendingAction {
         std::mem::replace(&mut self.pending_action, ServicePendingAction::None)
     }
 
     #[inline(always)]
-    pub fn format_status_line(&self, w: &mut impl fmt::Write) -> fmt::Result {
+    pub(crate) fn format_status_line(
+        &self,
+        w: &mut impl fmt::Write,
+    ) -> fmt::Result {
         match self.state {
             ServiceState::Running | ServiceState::Stopping(_) => {
                 match self.pid {
@@ -376,7 +378,7 @@ impl Service {
     }
 
     #[inline(always)]
-    pub fn debug_assert_invariants(&self) {
+    pub(crate) fn debug_assert_invariants(&self) {
         debug_assert!(
             match self.state {
                 ServiceState::Running | ServiceState::Stopping(_) =>
@@ -472,7 +474,10 @@ fn child_exec(
 /// TODO: Currently we're redirecting `/dev/std*` to dev null
 /// in the child processes, but we have to decide what to do
 /// with it
-pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
+pub(crate) fn start_service(
+    svc: &mut Service,
+    sigset: &SigSet,
+) -> io::Result<()> {
     let devnull_fd =
         open("/dev/null", OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())?;
     let log_fd = svc
@@ -511,7 +516,7 @@ pub fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
 
 /// Stop a service by calling `kill(pid, SIGTERM)` and marks it as
 /// stopping by setting state to `ServiceState::Stopping`.
-pub fn stop_service(svc: &mut Service) -> io::Result<()> {
+pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running => {
             let pid = match svc.pid {
@@ -529,7 +534,7 @@ pub fn stop_service(svc: &mut Service) -> io::Result<()> {
 }
 
 /// Kill a service with `SIGKILL`
-pub fn force_kill_service(svc: &Service) -> io::Result<()> {
+pub(crate) fn force_kill_service(svc: &Service) -> io::Result<()> {
     let pid = match svc.pid {
         Some(p) => p,
         None => return Ok(()),
@@ -556,7 +561,7 @@ pub fn force_kill_service(svc: &Service) -> io::Result<()> {
 /// in `pid -> service_id` after the child process has
 /// successfully started.
 #[derive(Debug, Clone, Default)]
-pub struct ServiceRegistry {
+pub(crate) struct ServiceRegistry {
     /// `service_id -> service`
     services_map: HashMap<u64, Service>,
     /// `pid -> service_id`
@@ -565,27 +570,28 @@ pub struct ServiceRegistry {
 
 impl ServiceRegistry {
     #[inline(always)]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Insert a new service in the `service_id -> service` map
     #[inline(always)]
-    pub fn insert_service(&mut self, svc: Service) {
+    pub(crate) fn insert_service(&mut self, svc: Service) {
         self.services_map.insert(svc.id, svc);
     }
 
     /// Get a shared reference to the service correspondig to
     /// `svc_id` if it exists in the `service_id -> service` map
+    #[allow(dead_code)]
     #[inline(always)]
-    pub fn service(&self, svc_id: u64) -> Option<&Service> {
+    pub(crate) fn service(&self, svc_id: u64) -> Option<&Service> {
         self.services_map.get(&svc_id)
     }
 
     /// Get a mutable reference to the service corresponding to
     /// `svc_id` if it exists in the `service_id -> service` map
     #[inline(always)]
-    pub fn service_mut(&mut self, svc_id: u64) -> Option<&mut Service> {
+    pub(crate) fn service_mut(&mut self, svc_id: u64) -> Option<&mut Service> {
         self.services_map.get_mut(&svc_id)
     }
 
@@ -594,13 +600,13 @@ impl ServiceRegistry {
     /// make sure to have properly updated the `service.pid` to
     /// `Some(pid)` for the `Service` corresponding to `svc_id`
     #[inline(always)]
-    pub fn register_pid(&mut self, pid: Pid, svc_id: u64) {
+    pub(crate) fn register_pid(&mut self, pid: Pid, svc_id: u64) {
         self.pids_map.insert(pid, svc_id);
     }
 
     /// Get a shared reference to the service corresponding to pid.
     #[inline(always)]
-    pub fn get_by_pid(&self, pid: Pid) -> Option<&Service> {
+    pub(crate) fn get_by_pid(&self, pid: Pid) -> Option<&Service> {
         let svc_id = self.pids_map.get(&pid)?;
         self.services_map.get(svc_id)
     }
@@ -609,31 +615,31 @@ impl ServiceRegistry {
     /// return a mutable reference to the correspondind `Service` in
     /// the `service_id -> service` map
     #[inline(always)]
-    pub fn take_by_pid(&mut self, pid: Pid) -> Option<&mut Service> {
+    pub(crate) fn take_by_pid(&mut self, pid: Pid) -> Option<&mut Service> {
         let svc_id = self.pids_map.remove(&pid)?;
         self.services_map.get_mut(&svc_id)
     }
 
     #[inline(always)]
-    pub fn services(
+    pub(crate) fn services(
         &self,
     ) -> std::collections::hash_map::Values<'_, u64, Service> {
         self.services_map.values()
     }
 
     #[inline(always)]
-    pub fn services_mut(
+    pub(crate) fn services_mut(
         &mut self,
     ) -> std::collections::hash_map::ValuesMut<'_, u64, Service> {
         self.services_map.values_mut()
     }
 
     #[inline(always)]
-    pub fn remove_service(&mut self, svc_id: u64) -> Option<Service> {
+    pub(crate) fn remove_service(&mut self, svc_id: u64) -> Option<Service> {
         self.services_map.remove(&svc_id)
     }
 
-    pub fn format_status(&self, w: &mut impl fmt::Write) -> fmt::Result {
+    pub(crate) fn format_status(&self, w: &mut impl fmt::Write) -> fmt::Result {
         for svc in self.services_map.values() {
             svc.format_status_line(w)?;
             w.write_char('\n')?;
@@ -664,7 +670,7 @@ impl ServiceRegistry {
 ///   can restart it.
 /// * if `ServiceState::Stopping(_)`: just store the new config and mark for
 ///   restart.
-pub fn reload_services(
+pub(crate) fn reload_services(
     registry: &mut ServiceRegistry,
     cfg_path: &Path,
     id_gen: &mut ServiceIdGen,
@@ -800,7 +806,7 @@ pub fn reload_services(
 /// TODO: We currently use the service name to identify services. See
 /// `crate::control::WireControlCommand` for details on switchingto
 /// service id
-pub fn apply_control_op(
+pub(crate) fn apply_control_op(
     registry: &mut ServiceRegistry,
     svc_id: u64,
     op: ControlOp,
@@ -873,7 +879,7 @@ pub fn apply_control_op(
 /// the caller to specify options. Here we're using `WNOHANG` to avoid actually blocking
 /// if no status information is available immediately when calling. In this way
 /// `waitpid(-1, ...)` differs completely from `wait`
-pub fn handle_sigchld(
+pub(crate) fn handle_sigchld(
     registry: &mut ServiceRegistry,
     sigset: &SigSet,
 ) -> io::Result<()> {

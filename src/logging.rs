@@ -6,18 +6,18 @@ static LOG_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Info as u8);
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(u8)]
-pub enum LogLevel {
+pub(crate) enum LogLevel {
     Error = 1,
     Warn = 2,
     Info = 3,
     Debug = 4,
 }
 
-pub fn set_log_level(level: LogLevel) {
+pub(crate) fn set_log_level(level: LogLevel) {
     LOG_LEVEL.store(level as u8, Ordering::Relaxed);
 }
 
-pub fn log_inner(level: LogLevel, msg: fmt::Arguments<'_>) {
+pub(crate) fn log_inner(level: LogLevel, msg: fmt::Arguments<'_>) {
     if level as u8 > LOG_LEVEL.load(Ordering::Relaxed) {
         return;
     }

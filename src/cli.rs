@@ -9,10 +9,10 @@ use crate::logging::LogLevel;
 const DEFAULT_RUN_DIR: &str = "/run/svlopp";
 
 #[derive(Debug, Clone)]
-pub struct CliArgs {
-    pub config_path: PathBuf,
-    pub run_dir: PathBuf,
-    pub log_level: LogLevel,
+pub(crate) struct CliArgs {
+    pub(crate) config_path: PathBuf,
+    pub(crate) run_dir: PathBuf,
+    pub(crate) log_level: LogLevel,
 }
 
 fn usage() -> ! {
@@ -20,7 +20,7 @@ fn usage() -> ! {
     std::process::exit(1);
 }
 
-pub fn parse() -> CliArgs {
+pub(crate) fn parse() -> CliArgs {
     let mut args = std::env::args().skip(1);
     let mut config_path = None;
     let mut run_dir = None;

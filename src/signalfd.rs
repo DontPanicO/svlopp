@@ -13,7 +13,7 @@ use crate::utils::cvt;
 
 bitflags! {
     #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-    pub struct SignalfdFlags: u32 {
+    pub(crate) struct SignalfdFlags: u32 {
         /// `SFD_NONBLOCK`
         const NONBLOCK = libc::SFD_NONBLOCK.cast_unsigned();
 
@@ -24,13 +24,13 @@ bitflags! {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct SigSet {
+pub(crate) struct SigSet {
     raw: libc::sigset_t,
 }
 
 impl SigSet {
     #[inline(always)]
-    pub fn empty() -> rustix::io::Result<Self> {
+    pub(crate) fn empty() -> rustix::io::Result<Self> {
         unsafe {
             let mut raw = std::mem::zeroed();
             cvt(libc::sigemptyset(&mut raw))?;
@@ -41,7 +41,7 @@ impl SigSet {
     /// Create a new `SigSet` from the current
     /// thread signal mask
     #[inline(always)]
-    pub fn current() -> rustix::io::Result<Self> {
+    pub(crate) fn current() -> rustix::io::Result<Self> {
         unsafe {
             let mut raw = std::mem::zeroed();
             cvt(libc::sigprocmask(
@@ -54,7 +54,7 @@ impl SigSet {
     }
 
     #[inline(always)]
-    pub fn add(&mut self, signal: i32) -> rustix::io::Result<()> {
+    pub(crate) fn add(&mut self, signal: i32) -> rustix::io::Result<()> {
         unsafe { cvt(libc::sigaddset(&mut self.raw, signal))? };
         Ok(())
     }
@@ -65,7 +65,7 @@ impl SigSet {
     }
 }
 
-pub fn block_thread_signals(sigset: &SigSet) -> rustix::io::Result<()> {
+pub(crate) fn block_thread_signals(sigset: &SigSet) -> rustix::io::Result<()> {
     unsafe {
         cvt(libc::sigprocmask(
             libc::SIG_BLOCK,
@@ -76,7 +76,9 @@ pub fn block_thread_signals(sigset: &SigSet) -> rustix::io::Result<()> {
     Ok(())
 }
 
-pub fn set_thread_signal_mask(sigset: &SigSet) -> rustix::io::Result<()> {
+pub(crate) fn set_thread_signal_mask(
+    sigset: &SigSet,
+) -> rustix::io::Result<()> {
     unsafe {
         cvt(libc::sigprocmask(
             libc::SIG_SETMASK,
@@ -89,7 +91,7 @@ pub fn set_thread_signal_mask(sigset: &SigSet) -> rustix::io::Result<()> {
 
 /// TODO: we're hardcoding fd to be -1, causing `signalfd` to only ask for
 /// a new file descriptor
-pub fn signalfd(
+pub(crate) fn signalfd(
     sigset: &SigSet,
     flags: SignalfdFlags,
 ) -> rustix::io::Result<OwnedFd> {
@@ -101,36 +103,37 @@ pub fn signalfd(
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
-pub struct SignalfdSiginfo {
+pub(crate) struct SignalfdSiginfo {
     raw: libc::signalfd_siginfo,
 }
 
+#[allow(dead_code)]
 impl SignalfdSiginfo {
     /// Return the underlying ssi_signo (the
     /// signal number)
     #[inline(always)]
-    pub const fn signal(&self) -> u32 {
+    pub(crate) const fn signal(&self) -> u32 {
         self.raw.ssi_signo
     }
 
     /// Return the underlying ssi_code (the
     /// signal code)
     #[inline(always)]
-    pub const fn code(&self) -> i32 {
+    pub(crate) const fn code(&self) -> i32 {
         self.raw.ssi_code
     }
 
     /// Return the underlying ssi_pid (the
     /// sender PID)
     #[inline(always)]
-    pub const fn pid(&self) -> u32 {
+    pub(crate) const fn pid(&self) -> u32 {
         self.raw.ssi_pid
     }
 
     /// Return the underlying ssi_uid (the
     /// actual sender UID)
     #[inline(always)]
-    pub const fn uid(&self) -> u32 {
+    pub(crate) const fn uid(&self) -> u32 {
         self.raw.ssi_uid
     }
 
@@ -143,14 +146,14 @@ impl SignalfdSiginfo {
     /// Any other method call before a successful call to
     /// `libc::read` is UB.
     #[inline(always)]
-    pub fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             raw: unsafe { std::mem::zeroed() },
         }
     }
 
     #[inline(always)]
-    pub fn as_mut_ptr(&mut self) -> *mut libc::signalfd_siginfo {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut libc::signalfd_siginfo {
         &mut self.raw
     }
 }
@@ -162,7 +165,7 @@ impl SignalfdSiginfo {
 /// N.B. this may not drain the fd. This is fine as we're
 /// using level-triggered epoll, which will fire again on
 /// the next call to wait
-pub fn read_signalfd_batch(
+pub(crate) fn read_signalfd_batch(
     fd: BorrowedFd<'_>,
     buf: &mut [SignalfdSiginfo],
 ) -> rustix::io::Result<usize> {

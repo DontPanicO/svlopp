@@ -18,7 +18,7 @@ use crate::utils::write_all;
 /// temporary file and then renaming it over the final path.
 /// Both paths are precomputed to avoid repeated allocations
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StatusFilePath {
+pub(crate) struct StatusFilePath {
     /// The status file path
     path: PathBuf,
     /// The temporary file path
@@ -37,7 +37,7 @@ impl StatusFilePath {
     /// let status_file_path = StatusFilePath::new(run_dir.join(STATUS_FILE_NAME));
     /// ```
     #[inline(always)]
-    pub fn new(path: PathBuf) -> Self {
+    pub(crate) fn new(path: PathBuf) -> Self {
         Self {
             tmp_path: path.with_extension("tmp"),
             path,
@@ -45,17 +45,17 @@ impl StatusFilePath {
     }
 
     #[inline(always)]
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
     #[inline(always)]
-    pub fn tmp_path(&self) -> &Path {
+    pub(crate) fn tmp_path(&self) -> &Path {
         &self.tmp_path
     }
 }
 
-pub fn write_status_file(
+pub(crate) fn write_status_file(
     path: &StatusFilePath,
     content: &str,
 ) -> io::Result<()> {

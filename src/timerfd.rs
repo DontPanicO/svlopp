@@ -9,7 +9,7 @@ use rustix::time::{
     timerfd_create, timerfd_settime,
 };
 
-pub fn create_timerfd_1s_periodic() -> rustix::io::Result<OwnedFd> {
+pub(crate) fn create_timerfd_1s_periodic() -> rustix::io::Result<OwnedFd> {
     let fd = timerfd_create(
         TimerfdClockId::Monotonic,
         TimerfdFlags::CLOEXEC | TimerfdFlags::NONBLOCK,
@@ -28,7 +28,7 @@ pub fn create_timerfd_1s_periodic() -> rustix::io::Result<OwnedFd> {
     Ok(fd)
 }
 
-pub fn read_timerfd(fd: BorrowedFd<'_>) -> rustix::io::Result<u64> {
+pub(crate) fn read_timerfd(fd: BorrowedFd<'_>) -> rustix::io::Result<u64> {
     let mut buf = [0u8; 8];
     let n = rustix::io::read(fd, &mut buf)?;
     if n != 8 {

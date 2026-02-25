@@ -20,7 +20,9 @@ const WIRE_COMMAND_SIZE: usize = 9;
 ///
 /// A write end must be kept open to prevent the read end from receiving
 /// `EOF` when no other writers are open
-pub fn create_control_fifo(path: &Path) -> io::Result<(OwnedFd, OwnedFd)> {
+pub(crate) fn create_control_fifo(
+    path: &Path,
+) -> io::Result<(OwnedFd, OwnedFd)> {
     match mkfifoat(CWD, path, Mode::from_bits_truncate(0o600)) {
         Ok(()) => {}
         Err(e) if e == rustix::io::Errno::EXIST => {}
@@ -40,7 +42,7 @@ pub fn create_control_fifo(path: &Path) -> io::Result<(OwnedFd, OwnedFd)> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlProtocolError {
+pub(crate) enum ControlProtocolError {
     InvalidOp(u8),
     PartialFrame(usize),
 }
@@ -62,7 +64,7 @@ impl std::fmt::Display for ControlProtocolError {
 /// - `Io`: kernel level I/O failures
 /// - `Invalid`: protocol level validation failures
 #[derive(Debug)]
-pub enum ControlError {
+pub(crate) enum ControlError {
     Io(io::Error),
     InvalidCommand(ControlProtocolError),
 }
@@ -77,7 +79,7 @@ impl From<io::Error> for ControlError {
 /// Control operations
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ControlOp {
+pub(crate) enum ControlOp {
     Stop = OP_STOP,
     Start = OP_START,
     Restart = OP_RESTART,
@@ -95,14 +97,14 @@ impl std::fmt::Display for ControlOp {
 
 /// Command wire-format representation
 #[derive(Debug, Clone, Copy)]
-pub struct ControlCommand {
-    pub op: ControlOp,
-    pub service_id: u64,
+pub(crate) struct ControlCommand {
+    pub(crate) op: ControlOp,
+    pub(crate) service_id: u64,
 }
 
 impl ControlCommand {
     #[inline(always)]
-    pub fn new(op: ControlOp, service_id: u64) -> Self {
+    pub(crate) fn new(op: ControlOp, service_id: u64) -> Self {
         Self { op, service_id }
     }
 }
@@ -114,7 +116,7 @@ impl ControlCommand {
 /// since it's level-triggered): if that becomes a bottleneck we could
 /// add a `read_control_command_batch` function to consume more commands
 /// per iteration
-pub fn read_control_command(
+pub(crate) fn read_control_command(
     fd: BorrowedFd<'_>,
 ) -> Result<Option<ControlCommand>, ControlError> {
     let mut buf = [0u8; WIRE_COMMAND_SIZE];

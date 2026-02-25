@@ -6,12 +6,12 @@ use std::{io, os::fd::BorrowedFd};
 
 use rustix::time::{ClockId, clock_gettime};
 
-pub fn timestamp() -> (i64, i64) {
+pub(crate) fn timestamp() -> (i64, i64) {
     let now = clock_gettime(ClockId::Realtime);
     (now.tv_sec, now.tv_nsec)
 }
 
-pub trait RetCode: Copy {
+pub(crate) trait RetCode: Copy {
     fn is_error(self) -> bool;
 }
 
@@ -29,7 +29,7 @@ impl RetCode for isize {
     }
 }
 
-pub fn cvt<T: RetCode>(ret: T) -> rustix::io::Result<T> {
+pub(crate) fn cvt<T: RetCode>(ret: T) -> rustix::io::Result<T> {
     if ret.is_error() {
         let errno = unsafe { *libc::__errno_location() };
         Err(rustix::io::Errno::from_raw_os_error(errno))
@@ -39,7 +39,7 @@ pub fn cvt<T: RetCode>(ret: T) -> rustix::io::Result<T> {
 }
 
 #[inline(always)]
-pub fn is_crash_signal(sig: i32) -> bool {
+pub(crate) fn is_crash_signal(sig: i32) -> bool {
     matches!(
         sig,
         libc::SIGSEGV
@@ -51,7 +51,7 @@ pub fn is_crash_signal(sig: i32) -> bool {
 }
 
 #[inline(always)]
-pub fn write_all(fd: BorrowedFd<'_>, mut buf: &[u8]) -> io::Result<()> {
+pub(crate) fn write_all(fd: BorrowedFd<'_>, mut buf: &[u8]) -> io::Result<()> {
     while !buf.is_empty() {
         let n = rustix::io::write(fd, buf)?;
         buf = &buf[n..];
