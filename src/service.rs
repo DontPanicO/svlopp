@@ -45,9 +45,15 @@ pub(crate) enum ExitReason {
 impl ExitReason {
     pub(crate) fn from_wait_status(status: WaitStatus) -> Option<Self> {
         if status.exited() {
-            Some(Self::Exited(status.exit_status().unwrap_or(-1)))
+            Some(Self::Exited(
+                status.exit_status().expect("`exited()` returned `true`"),
+            ))
         } else if status.signaled() {
-            Some(Self::Signaled(status.terminating_signal().unwrap()))
+            Some(Self::Signaled(
+                status
+                    .terminating_signal()
+                    .expect("`signaled()` returned `true`"),
+            ))
         } else {
             None
         }

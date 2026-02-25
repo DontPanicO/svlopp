@@ -2,6 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#![deny(clippy::unwrap_used)]
+
 use std::{os::fd::AsFd, time::Instant};
 
 use rustix::{
@@ -125,7 +127,9 @@ fn main() -> std::io::Result<()> {
 
     for (name, cfg) in service_configs.services.into_iter() {
         service_registry.insert_service(Service::new(
-            service_id_generator.nextval().unwrap(),
+            service_id_generator
+                .nextval()
+                .ok_or_else(|| std::io::Error::other("service id overflow"))?,
             name,
             cfg,
         )?);
