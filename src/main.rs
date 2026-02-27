@@ -23,8 +23,9 @@ mod utils;
 use control::{ControlError, create_control_fifo, read_control_command};
 use logging::{LogLevel, set_log_level};
 use service::{
-    Service, ServiceConfigData, ServiceIdGen, ServiceRegistry, ServiceState, apply_control_op,
-    force_kill_service, handle_sigchld, reload_services, start_service, stop_service,
+    Service, ServiceConfigData, ServiceIdGen, ServicePendingAction, ServiceRegistry, ServiceState,
+    ServiceStopReason, apply_control_op, force_kill_service, handle_sigchld, reload_services,
+    start_service, stop_service,
 };
 use signalfd::{
     SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals, read_signalfd_batch, signalfd,
@@ -192,7 +193,7 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                         if signo.cast_signed() == libc::SIGCHLD {
-                            handle_sigchld(&mut service_registry, &original_sigset)?;
+                            handle_sigchld(&mut service_registry)?;
                             if (sv_state == SupervisorState::ShutdownRequested)
                                 && service_registry.services().all(|svc| svc.is_stopped())
                             {
@@ -226,11 +227,15 @@ fn main() -> std::io::Result<()> {
                     flush_status_file(&service_registry, &mut status_buf, &status_file_path);
                 }
                 ID_TFD => {
-                    // `timerfd` is currently unused, read just to drain it
+                    // `timerfd` read value is currently unused, read just to drain it
                     let _ = read_timerfd(tfd.as_fd())?;
                     let now = Instant::now();
-                    for svc in service_registry.services() {
-                        match svc.state {
+                    // Enforce kill deadlines and apply pending actions. Pending actions are applied here
+                    // instead of immediately after reaping so that:
+                    // - restart attempts are implicitly rate limited by the timer period.
+                    // - `handle_sigchld` remains just about state transitions.
+                    service_registry.with_maps_mut(|services_map, pids_map| {
+                        services_map.retain(|&svc_id, svc| match svc.state {
                             ServiceState::Stopping(kill_deadline) if now >= kill_deadline => {
                                 if let Err(e) = force_kill_service(svc) {
                                     svlogg!(
@@ -240,10 +245,55 @@ fn main() -> std::io::Result<()> {
                                         e
                                     );
                                 }
+                                true
                             }
-                            _ => {}
-                        }
-                    }
+                            ServiceState::Stopped(stop_reason) => {
+                                let pending = match svc.take_pending_action() {
+                                    ServicePendingAction::None => match stop_reason {
+                                        ServiceStopReason::NeverStarted
+                                        | ServiceStopReason::SupervisorTerminated => {
+                                            ServicePendingAction::None
+                                        }
+                                        _ => svc.config.fallback_pending_action,
+                                    },
+                                    p => p,
+                                };
+                                match pending {
+                                    ServicePendingAction::None => true,
+                                    ServicePendingAction::Remove => {
+                                        svlogg!(LogLevel::Info, "removed service '{}'", svc.name);
+                                        false
+                                    }
+                                    ServicePendingAction::Restart => {
+                                        match start_service(svc, &original_sigset) {
+                                            Ok(()) => {
+                                                let svc_pid = svc
+                                                    .pid
+                                                    .expect("running service must have a pid");
+                                                svlogg!(
+                                                    LogLevel::Info,
+                                                    "restarted service '{}', with pid {}",
+                                                    svc.name,
+                                                    svc_pid,
+                                                );
+                                                // can't use `service_registry.register_pid` here
+                                                pids_map.insert(svc_pid, svc_id);
+                                            }
+                                            Err(e) => svlogg!(
+                                                LogLevel::Error,
+                                                "failed to restart service '{}': {}",
+                                                svc.name,
+                                                e
+                                            ),
+                                        }
+                                        true
+                                    }
+                                }
+                            }
+                            _ => true,
+                        })
+                    });
+                    flush_status_file(&service_registry, &mut status_buf, &status_file_path);
                 }
                 ID_PFD => match read_control_command(pfd.as_fd()) {
                     Ok(Some(cmd)) => {

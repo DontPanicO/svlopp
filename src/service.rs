@@ -280,6 +280,13 @@ pub(crate) enum ServicePendingAction {
     Remove,
 }
 
+impl ServicePendingAction {
+    #[inline(always)]
+    pub(crate) fn is_none(&self) -> bool {
+        matches!(self, ServicePendingAction::None)
+    }
+}
+
 /// A minimal service representation.
 /// TODO: whether we expect `pid` to be `Some`
 /// it's strictly related to the service state.
@@ -613,6 +620,20 @@ impl ServiceRegistry {
         self.services_map.remove(&svc_id)
     }
 
+    /// Execute a closure with mutable access to both `services_map` and
+    /// `pids_map`.
+    ///
+    /// This exists to allow for use cases like iterating through services
+    /// to restart or remove them while also keep the pid index in sync,
+    /// without exposing the maps publicly
+    #[inline(always)]
+    pub(crate) fn with_maps_mut<R>(
+        &mut self,
+        f: impl FnOnce(&mut HashMap<u64, Service>, &mut HashMap<Pid, u64>) -> R,
+    ) -> R {
+        f(&mut self.services_map, &mut self.pids_map)
+    }
+
     pub(crate) fn format_status(&self, w: &mut impl fmt::Write) -> fmt::Result {
         for svc in self.services_map.values() {
             svc.format_status_line(w)?;
@@ -632,7 +653,7 @@ impl ServiceRegistry {
 /// * If the service state is `ServiceState::Stopped(_)`: remove the service
 ///   from the registry immediately.
 /// * If `ServiceState::Running`: call `stop_service` and mark for removal so
-///   that the SIGCHLD handler can remove it once stopped.
+///   that it can be removed once the process has been reaped.
 /// * If `ServiceState::Stopping(_)`: just mark for removal.
 ///
 /// For changed services (present in both the registry and the new config
@@ -640,8 +661,8 @@ impl ServiceRegistry {
 /// * If the service state is `ServiceState::Stopped(_)`: update the config,
 ///   rebuild argv, then start it.
 /// * If `ServiceState::Running`: call `stop_service`, store new config and
-///   mark for restart so that when the SIGCHLD handler reaps the process it
-///   can restart it.
+///   mark for restart so that it can be restarted after the process has been
+///   reaped.
 /// * if `ServiceState::Stopping(_)`: just store the new config and mark for
 ///   restart.
 pub(crate) fn reload_services(
@@ -740,19 +761,19 @@ pub(crate) fn reload_services(
 /// Control operations are treated as *requests*, meaning they must:
 /// - Respect the current state.
 /// - Never override an existing pending action.
+/// - Never act on a stopped service whose pending action has yet to
+///   be processed.
 ///
 /// In particular:
 /// - `Stop`: stops a service *only* if it is running. Never clears a
-///   pending action.
-/// - `Start`: starts a service *only* if it is stopped. Never sets/clears
-///   a pending action.
-/// - `Restart`: if the service is stopped, starts it. If it is running
-///   stops it and sets `pending_action = ServicePendingAction::Restart`
-///   *only* if no pending action exists.
-///
-/// TODO: We currently use the service name to identify services. See
-/// `crate::control::WireControlCommand` for details on switchingto
-/// service id
+///   pending action. This is safe, as any pending action will be applied
+///   after the service process is reaped.
+/// - `Start`: starts a service *only* if it is stopped *and* has no
+///   pending action. Never sets/clears a pending action.
+/// - `Restart`: if the service is stopped *and* has no pending action,
+///   starts it. If it is running *and* has no pending action, stops it
+///   and sets `pending_action = ServicePendingAction::Restart`. Does
+///   nothing otherwise.
 pub(crate) fn apply_control_op(
     registry: &mut ServiceRegistry,
     svc_id: u64,
@@ -769,7 +790,7 @@ pub(crate) fn apply_control_op(
                 }
             }
             ControlOp::Start => {
-                if matches!(svc.state, ServiceState::Stopped(_)) {
+                if matches!(svc.state, ServiceState::Stopped(_)) && svc.pending_action.is_none() {
                     start_service(svc, sigset)?;
                     let svc_pid = svc.pid.expect("running service must have a pid");
                     svlogg!(
@@ -782,7 +803,7 @@ pub(crate) fn apply_control_op(
                 }
             }
             ControlOp::Restart => match svc.state {
-                ServiceState::Stopped(_) => {
+                ServiceState::Stopped(_) if svc.pending_action.is_none() => {
                     start_service(svc, sigset)?;
                     let svc_pid = svc.pid.expect("running service must have a pid");
                     svlogg!(
@@ -793,12 +814,10 @@ pub(crate) fn apply_control_op(
                     );
                     registry.register_pid(svc_pid, svc_id);
                 }
-                ServiceState::Running => {
-                    if matches!(svc.pending_action, ServicePendingAction::None) {
-                        svlogg!(LogLevel::Info, "service '{}' will be restarted", svc.name);
-                        svc.pending_action = ServicePendingAction::Restart;
-                        stop_service(svc)?;
-                    }
+                ServiceState::Running if svc.pending_action.is_none() => {
+                    svlogg!(LogLevel::Info, "service '{}' will be restarted", svc.name);
+                    svc.pending_action = ServicePendingAction::Restart;
+                    stop_service(svc)?;
                 }
                 _ => {}
             },
@@ -819,7 +838,7 @@ pub(crate) fn apply_control_op(
 /// the caller to specify options. Here we're using `WNOHANG` to avoid actually blocking
 /// if no status information is available immediately when calling. In this way
 /// `waitpid(-1, ...)` differs completely from `wait`
-pub(crate) fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) -> io::Result<()> {
+pub(crate) fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
     loop {
         match wait(WaitOptions::NOHANG) {
             Ok(Some((pid, status))) => {
@@ -843,42 +862,6 @@ pub(crate) fn handle_sigchld(registry: &mut ServiceRegistry, sigset: &SigSet) ->
                                 svc.name,
                                 exit_reason,
                             );
-                            let svc_id = svc.id;
-                            let pending = match svc.take_pending_action() {
-                                ServicePendingAction::None => match stop_reason {
-                                    ServiceStopReason::SupervisorTerminated
-                                    | ServiceStopReason::NeverStarted => ServicePendingAction::None,
-                                    _ => svc.config.fallback_pending_action,
-                                },
-                                p => p,
-                            };
-                            match pending {
-                                ServicePendingAction::None => {}
-                                ServicePendingAction::Remove => {
-                                    if let Some(svc) = registry.remove_service(svc_id) {
-                                        svlogg!(LogLevel::Info, "removed service '{}'", svc.name);
-                                    };
-                                }
-                                ServicePendingAction::Restart => match start_service(svc, sigset) {
-                                    Ok(()) => {
-                                        let svc_pid =
-                                            svc.pid.expect("running service must have a pid");
-                                        svlogg!(
-                                            LogLevel::Info,
-                                            "restarted service '{}' with pid {:?}",
-                                            svc.name,
-                                            svc_pid,
-                                        );
-                                        registry.register_pid(svc_pid, svc_id);
-                                    }
-                                    Err(e) => svlogg!(
-                                        LogLevel::Error,
-                                        "failed to restart service '{}': {}",
-                                        svc.name,
-                                        e
-                                    ),
-                                },
-                            }
                         }
                         None => svlogg!(
                             LogLevel::Info,
