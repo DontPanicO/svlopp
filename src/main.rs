@@ -24,8 +24,8 @@ use control::{ControlError, create_control_fifo, read_control_command};
 use logging::{LogLevel, set_log_level};
 use service::{
     Service, ServiceConfigData, ServiceIdGen, ServicePendingAction, ServiceRegistry, ServiceState,
-    ServiceStopReason, apply_control_op, force_kill_service, handle_sigchld, reload_services,
-    start_service, stop_service,
+    ServiceStopReason, apply_control_op, force_kill_service_process, handle_sigchld,
+    reload_services, start_service, stop_service,
 };
 use signalfd::{
     SigSet, SignalfdFlags, SignalfdSiginfo, block_thread_signals, read_signalfd_batch, signalfd,
@@ -140,7 +140,7 @@ fn main() -> std::io::Result<()> {
         if let Some(svc) = service_registry.service_mut(svc_id) {
             match start_service(svc, &original_sigset) {
                 Ok(()) => {
-                    let pid = svc.pid.expect("running service must have a pid");
+                    let pid = svc.pid().expect("running service must have a pid");
                     svlogg!(
                         LogLevel::Info,
                         "started service '{}' with pid {:?}",
@@ -236,8 +236,8 @@ fn main() -> std::io::Result<()> {
                     // - `handle_sigchld` remains just about state transitions.
                     service_registry.with_maps_mut(|services_map, pids_map| {
                         services_map.retain(|&svc_id, svc| match svc.state {
-                            ServiceState::Stopping(kill_deadline) if now >= kill_deadline => {
-                                if let Err(e) = force_kill_service(svc) {
+                            ServiceState::Stopping(pid, kill_deadline) if now >= kill_deadline => {
+                                if let Err(e) = force_kill_service_process(pid) {
                                     svlogg!(
                                         LogLevel::Error,
                                         "failed to kill service '{}': {}",
@@ -268,7 +268,7 @@ fn main() -> std::io::Result<()> {
                                         match start_service(svc, &original_sigset) {
                                             Ok(()) => {
                                                 let svc_pid = svc
-                                                    .pid
+                                                    .pid()
                                                     .expect("running service must have a pid");
                                                 svlogg!(
                                                     LogLevel::Info,

@@ -106,7 +106,7 @@ impl ServiceStopReason {
     ) -> Self {
         match exit_reason {
             ExitReason::Exited(code) => {
-                if matches!(svc_state, ServiceState::Stopping(_)) {
+                if matches!(svc_state, ServiceState::Stopping(_, _)) {
                     Self::SupervisorTerminated
                 } else if code == 0 {
                     Self::Success
@@ -117,7 +117,7 @@ impl ServiceStopReason {
             ExitReason::Signaled(sig) => {
                 if is_crash_signal(sig) {
                     Self::Crashed(sig)
-                } else if matches!(svc_state, ServiceState::Stopping(_)) {
+                } else if matches!(svc_state, ServiceState::Stopping(_, _)) {
                     Self::SupervisorTerminated
                 } else {
                     Self::Killed(sig)
@@ -129,7 +129,7 @@ impl ServiceStopReason {
 
 /// All possible states in which a service
 /// can be at any moment
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ServiceState {
     /// The service is stopped.
     /// This is the initial state for all
@@ -137,13 +137,13 @@ pub(crate) enum ServiceState {
     Stopped(ServiceStopReason),
     /// The service has been started and
     /// is now running
-    Running,
+    Running(Pid),
     /// The service is stopping.
     /// Services are put in this state after
     /// a stop request, which can be issued
     /// from different actors and in
     /// different forms
-    Stopping(Instant),
+    Stopping(Pid, Instant),
 }
 
 impl Default for ServiceState {
@@ -156,8 +156,8 @@ impl fmt::Display for ServiceState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Stopped(r) => write!(f, "stopped {}", r),
-            Self::Running => write!(f, "running"),
-            Self::Stopping(_) => write!(f, "stopping"),
+            Self::Running(p) => write!(f, "running {}", p.as_raw_nonzero()),
+            Self::Stopping(p, _) => write!(f, "stopping {}", p.as_raw_nonzero()),
         }
     }
 }
@@ -288,11 +288,6 @@ impl ServicePendingAction {
 }
 
 /// A minimal service representation.
-/// TODO: whether we expect `pid` to be `Some`
-/// it's strictly related to the service state.
-/// We might want to couple this in some way
-/// (e.g. include the `pid` in the state instead
-/// of having it as a separate parameter)
 #[derive(Debug, Clone)]
 pub(crate) struct Service {
     pub(crate) id: u64,
@@ -300,7 +295,6 @@ pub(crate) struct Service {
     pub(crate) config: ServiceConfig,
     pub(crate) argv: Vec<CString>,
     pub(crate) envp: Option<Vec<CString>>,
-    pub(crate) pid: Option<Pid>,
     pub(crate) state: ServiceState,
     pub(crate) pending_action: ServicePendingAction,
 }
@@ -316,7 +310,6 @@ impl Service {
             config,
             argv,
             envp,
-            pid: None,
             state: ServiceState::Stopped(ServiceStopReason::NeverStarted),
             pending_action: ServicePendingAction::None,
         })
@@ -329,6 +322,15 @@ impl Service {
     #[inline(always)]
     pub(crate) fn set_state(&mut self, state: ServiceState) {
         self.state = state;
+    }
+
+    #[inline(always)]
+    pub(crate) fn pid(&self) -> Option<Pid> {
+        match self.state {
+            ServiceState::Running(p) => Some(p),
+            ServiceState::Stopping(p, _) => Some(p),
+            _ => None,
+        }
     }
 
     #[inline(always)]
@@ -354,37 +356,7 @@ impl Service {
 
     #[inline(always)]
     pub(crate) fn format_status_line(&self, w: &mut impl fmt::Write) -> fmt::Result {
-        match self.state {
-            ServiceState::Running | ServiceState::Stopping(_) => {
-                write!(
-                    w,
-                    "{} {} {} {}",
-                    self.name,
-                    self.id,
-                    self.state,
-                    self.pid
-                        .expect("running service must have a pid")
-                        .as_raw_nonzero()
-                )
-            }
-            ServiceState::Stopped(_) => {
-                write!(w, "{} {} {}", self.name, self.id, self.state)
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn debug_assert_invariants(&self) {
-        debug_assert!(
-            match self.state {
-                ServiceState::Running | ServiceState::Stopping(_) => self.pid.is_some(),
-                ServiceState::Stopped(_) => self.pid.is_none(),
-            },
-            "service '{}' invariant violated: state={:?}, pid={:?}",
-            self.name,
-            self.state,
-            self.pid,
-        )
+        write!(w, "{} {} {}", self.name, self.id, self.state)
     }
 }
 
@@ -490,9 +462,7 @@ pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()
         raw if raw > 0 => {
             // safe as we just checked that the pid is > 0
             let pid = unsafe { Pid::from_raw_unchecked(raw) };
-            svc.pid = Some(pid);
-            svc.state = ServiceState::Running;
-            svc.debug_assert_invariants();
+            svc.state = ServiceState::Running(pid);
             Ok(())
         }
         _ => Err(io::Error::last_os_error()),
@@ -505,27 +475,22 @@ pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()
 /// services and is a no-op for any other state
 pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
-        ServiceState::Running => {
-            kill_process(
-                svc.pid.expect("running service must have a pid"),
-                Signal::TERM,
-            )?;
-            svc.state = ServiceState::Stopping(Instant::now() + SERVICE_STOP_TIMEOUT);
-            svc.debug_assert_invariants();
+        ServiceState::Running(p) => {
+            kill_process(p, Signal::TERM)?;
+            svc.state = ServiceState::Stopping(p, Instant::now() + SERVICE_STOP_TIMEOUT);
             Ok(())
         }
         _ => Ok(()),
     }
 }
 
-/// Send `SIGKILL` to a service process. This is pure mechanism with no state
-/// transition: it sends the signal if a pid is present and returns.
-/// The caller is responsible for ensuring the state transition if required
-/// (e.g. if calling it against a `ServiceState::Running` service).
-pub(crate) fn force_kill_service(svc: &Service) -> io::Result<()> {
-    if let Some(pid) = svc.pid {
-        kill_process(pid, Signal::KILL)?;
-    }
+/// Send `SIGKILL` to the given process.
+///
+/// This is pure mechanism and has no state awareness. The caller is
+/// responsible for maintaining the invariants and performing any
+/// required state transitions
+pub(crate) fn force_kill_service_process(pid: Pid) -> io::Result<()> {
+    kill_process(pid, Signal::KILL)?;
     Ok(())
 }
 
@@ -686,11 +651,11 @@ pub(crate) fn reload_services(
                     svc.pending_action = ServicePendingAction::None;
                     let _ = registry.remove_service(svc_id);
                 }
-                ServiceState::Stopping(_) => {
+                ServiceState::Stopping(_, _) => {
                     svlogg!(LogLevel::Info, "stopping service '{}' for removal", name);
                     svc.pending_action = ServicePendingAction::Remove;
                 }
-                ServiceState::Running => {
+                ServiceState::Running(_) => {
                     svlogg!(LogLevel::Info, "stopping service '{}' for removal", name);
                     svc.pending_action = ServicePendingAction::Remove;
                     stop_service(svc)?;
@@ -708,7 +673,7 @@ pub(crate) fn reload_services(
                     .ok_or_else(|| io::Error::other("service id overflow"))?;
                 let mut svc = Service::new(svc_id, name, cfg)?;
                 start_service(&mut svc, sigset)?;
-                let svc_pid = svc.pid.expect("running service must have a pid");
+                let svc_pid = svc.pid().expect("running service must have a pid");
                 svlogg!(
                     LogLevel::Info,
                     "started new service '{}' with pid {}",
@@ -736,14 +701,14 @@ pub(crate) fn reload_services(
                                 name
                             );
                             start_service(svc, sigset)?;
-                            let svc_pid = svc.pid.expect("running service must have a pid");
+                            let svc_pid = svc.pid().expect("running service must have a pid");
                             registry.register_pid(svc_pid, svc_id);
                         }
-                        ServiceState::Stopping(_) => {
+                        ServiceState::Stopping(_, _) => {
                             svlogg!(LogLevel::Info, "service '{}' will be restarted", name);
                             svc.pending_action = ServicePendingAction::Restart;
                         }
-                        ServiceState::Running => {
+                        ServiceState::Running(_) => {
                             svlogg!(LogLevel::Info, "service '{}' will be restarted", name);
                             svc.pending_action = ServicePendingAction::Restart;
                             stop_service(svc)?;
@@ -784,7 +749,7 @@ pub(crate) fn apply_control_op(
         let svc_id = svc.id;
         match op {
             ControlOp::Stop => {
-                if matches!(svc.state, ServiceState::Running) {
+                if matches!(svc.state, ServiceState::Running(_)) {
                     svlogg!(LogLevel::Info, "stopping service '{}'", svc.name);
                     stop_service(svc)?;
                 }
@@ -792,7 +757,7 @@ pub(crate) fn apply_control_op(
             ControlOp::Start => {
                 if matches!(svc.state, ServiceState::Stopped(_)) && svc.pending_action.is_none() {
                     start_service(svc, sigset)?;
-                    let svc_pid = svc.pid.expect("running service must have a pid");
+                    let svc_pid = svc.pid().expect("running service must have a pid");
                     svlogg!(
                         LogLevel::Info,
                         "started service '{}' with pid {}",
@@ -805,7 +770,7 @@ pub(crate) fn apply_control_op(
             ControlOp::Restart => match svc.state {
                 ServiceState::Stopped(_) if svc.pending_action.is_none() => {
                     start_service(svc, sigset)?;
-                    let svc_pid = svc.pid.expect("running service must have a pid");
+                    let svc_pid = svc.pid().expect("running service must have a pid");
                     svlogg!(
                         LogLevel::Info,
                         "started service '{}' with pid {}",
@@ -814,7 +779,7 @@ pub(crate) fn apply_control_op(
                     );
                     registry.register_pid(svc_pid, svc_id);
                 }
-                ServiceState::Running if svc.pending_action.is_none() => {
+                ServiceState::Running(_) if svc.pending_action.is_none() => {
                     svlogg!(LogLevel::Info, "service '{}' will be restarted", svc.name);
                     svc.pending_action = ServicePendingAction::Restart;
                     stop_service(svc)?;
@@ -845,7 +810,6 @@ pub(crate) fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
                 if let Some(exit_reason) = ExitReason::from_wait_status(status) {
                     match registry.take_by_pid(pid) {
                         Some(svc) => {
-                            svc.pid = None;
                             let stop_reason = ServiceStopReason::from_exit_reason_and_service_state(
                                 exit_reason,
                                 svc.state,
