@@ -97,10 +97,19 @@ command = "/usr/local/bin/my_service"
 args = ["--config", "/etc/my_service.conf"]
 ```
 
-Run svlopp (the runtime directory defaults to `/run/svlopp`. Use `--run-dir PATH`):
+Run svlopp:
 ```
-./target/release/svlopp --run-dir /some/dir services.toml
+sudo ./target/release/svlopp services.toml
 ```
+By default svlopp uses `/run/svlopp` as its runtime directory. Since that location
+typically requires root privileges, you may need to run it with sudo.
+
+Alternatively, you can specify a custom runtime directory:
+```
+./target/release/svlopp --run-dir /tmp/svlopp services.toml
+```
+At startup, svlopp removes the runtime directory if exists and recreates it.
+The parent directory (`/tmp` in the above example) is expected to exist.
 
 To reload configuration, send `SIGHUP`:
 ```

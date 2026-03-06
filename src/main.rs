@@ -8,6 +8,7 @@ use std::{os::fd::AsFd, time::Instant};
 
 use rustix::{
     event::epoll,
+    fs::{CWD, Mode, mkdirat},
     process::{Pid, set_child_subreaper},
 };
 
@@ -66,11 +67,8 @@ fn flush_status_file(registry: &ServiceRegistry, buf: &mut String, path: &Status
     }
 }
 
-fn main() -> std::io::Result<()> {
-    let args = cli::parse();
+fn run(args: &cli::CliArgs) -> std::io::Result<()> {
     let status_file_path = StatusFilePath::new(args.run_dir.join(STATUS_FILE_PATH));
-
-    set_log_level(args.log_level);
 
     let mut sv_state = SupervisorState::default();
 
@@ -321,4 +319,57 @@ fn main() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+fn main() {
+    let args = cli::parse();
+
+    set_log_level(args.log_level);
+
+    if let Err(e) = std::fs::remove_dir_all(&args.run_dir)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        svlogg!(
+            LogLevel::Warn,
+            "can't remove run directory '{}': {}",
+            args.run_dir.display(),
+            e
+        );
+    }
+
+    match mkdirat(CWD, &args.run_dir, Mode::from_bits_truncate(0o755)) {
+        Ok(()) => svlogg!(
+            LogLevel::Debug,
+            "created run directory '{}'",
+            args.run_dir.display()
+        ),
+        Err(e) => {
+            svlogg!(
+                LogLevel::Error,
+                "can't create run directory '{}': {}",
+                args.run_dir.display(),
+                e
+            );
+            std::process::exit(1);
+        }
+    }
+
+    let code = match run(&args) {
+        Ok(()) => 0,
+        Err(e) => {
+            svlogg!(LogLevel::Error, "{}", e);
+            1
+        }
+    };
+
+    if let Err(e) = std::fs::remove_dir_all(&args.run_dir) {
+        svlogg!(
+            LogLevel::Warn,
+            "can't remove run directory '{}': {}",
+            args.run_dir.display(),
+            e
+        );
+    }
+
+    std::process::exit(code);
 }
