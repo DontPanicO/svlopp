@@ -26,16 +26,6 @@ pub(crate) struct StatusFilePath {
 }
 
 impl StatusFilePath {
-    /// For example:
-    /// ```
-    /// use std::path::PathBuf;
-    /// use svlopp::status::StatusFilePath;
-    ///
-    /// const STATUS_FILE_NAME: &str = "status";
-    ///
-    /// let run_dir = PathBuf::from("/run/svlopp");
-    /// let status_file_path = StatusFilePath::new(run_dir.join(STATUS_FILE_NAME));
-    /// ```
     #[inline(always)]
     pub(crate) fn new(path: PathBuf) -> Self {
         Self {

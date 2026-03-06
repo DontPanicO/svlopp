@@ -136,7 +136,7 @@ impl SignalfdSiginfo {
     /// # Safety
     /// an empty `SignalfdSiginfo` contains uninitialized
     /// data and can only be used to get a mutable pointer
-    /// with `as_mut_ptr`. This is intented for usage with
+    /// with `as_mut_ptr`. This is intended for usage with
     /// `libc::read`, to which the mutable pointer is passed.
     /// Any other method call before a successful call to
     /// `libc::read` is UB.

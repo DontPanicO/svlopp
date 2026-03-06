@@ -315,15 +315,6 @@ impl Service {
         })
     }
 
-    /// TODO: we might want logic to enforce some contract (e.g.
-    /// a state machine) instead of letting the caller set
-    /// an arbitrary value for state
-    #[allow(dead_code)]
-    #[inline(always)]
-    pub(crate) fn set_state(&mut self, state: ServiceState) {
-        self.state = state;
-    }
-
     #[inline(always)]
     pub(crate) fn pid(&self) -> Option<Pid> {
         match self.state {
@@ -688,10 +679,9 @@ pub(crate) fn reload_services(
                     && (svc.config != cfg)
                 {
                     svlogg!(LogLevel::Debug, "config changed for service {}", name);
-                    // Update the configuration immediately.
-                    // The currently running process may still be using the old config
-                    // for a while. This is intentional: desired state wins over current
-                    // one
+                    // Update the config now so that when the process is eventually
+                    // restarted, it uses the new definition. The currently running
+                    // process continues with the old config until it exits.
                     svc.update_config(cfg)?;
                     match svc.state {
                         ServiceState::Stopped(_) => {
