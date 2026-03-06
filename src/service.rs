@@ -240,13 +240,9 @@ impl ServiceConfigData {
 }
 
 /// Generate progressive service ids.
-///
-/// Service ids are `u64`, but we want to support
-/// up to just 65336 services for now hence this
-/// holds an `u16`.
 #[repr(transparent)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ServiceIdGen(u16);
+pub(crate) struct ServiceIdGen(u64);
 
 impl ServiceIdGen {
     #[inline(always)]
@@ -254,13 +250,9 @@ impl ServiceIdGen {
         Self::default()
     }
 
-    /// Returns an `Option` with the currently holded
-    /// value - zero extended to 64-bit - and increment
-    /// it by one. If incrementing causes an overflow
-    /// it returns `None`
     #[inline(always)]
     pub(crate) fn nextval(&mut self) -> Option<u64> {
-        let value = self.0 as u64;
+        let value = self.0;
         self.0 = self.0.checked_add(1)?;
         Some(value)
     }
