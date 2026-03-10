@@ -257,7 +257,12 @@ svlopp is in early development and I'm happy to have people look at it, poke at 
 If you find a bug or have an idea, open an issue. If you want to contribute code, feel free to open a PR, but
 for anything non trivial it might still be worth opening an issue.
 
-There's no formal contributing guide yet. That might change as the project matures.
+This project uses the [Developer Certificate of Origin](https://developercertificate.org) (DCO).
+By signing off your commits, you certify that you have the right to submit the code under the
+project's license. Sign off your commits with:
+```
+git commit -s
+```
 
 ## License
 
