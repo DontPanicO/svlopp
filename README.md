@@ -232,7 +232,7 @@ configuration structure may change as new features are introduced.
 
 svlopp is still in an early stage, and several important pieces are either missing or incomplete:
 - svlopp is currently a user space process supervisor, and a bare-bones one at that
-- Subreaping support is minimal. Orphaned descendant are reaped, but no additional semantics (such
+- Subreaping support is minimal. Orphaned descendants are reaped, but no additional semantics (such
   as attribution to services) are currently implemented.
 - Logging is very limited and poorly structured, if at all
 

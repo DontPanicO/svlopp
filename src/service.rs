@@ -261,6 +261,7 @@ impl ServiceIdGen {
 /// Pending action to be executed when a service stops.
 ///
 /// Used during reload to defer actions for services that are
+/// still running
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 pub(crate) enum ServicePendingAction {
     /// No pending action to perform
