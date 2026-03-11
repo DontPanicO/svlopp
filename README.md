@@ -150,6 +150,21 @@ Services are expected to run in the foreground. svlopp supervises the processes 
 them directly; services that daemonize themselves, double-fork, or are explicitly backgrounded
 (e.g. using `&`) will break supervision and are not supported.
 
+Many traditional daemons support a foreground mode. For example, to supervise apache2
+you could write a small wrapper script:
+```bash
+#!/usr/bin/env bash
+
+. /etc/apache2/envvars
+exec /usr/sbin/apache2 -DFOREGROUND
+```
+
+and make it executable, then add it to your configuration:
+```toml
+[services.apache2]
+command = "/path/to/your/wrapper_script.sh"
+```
+
 The optional `on_exit` field defines what svlopp should do after a service process exits.
 It is a fallback action, taken only when no other explicit action is pending (for example after a
 configuration reload triggered by `SIGHUP`).
