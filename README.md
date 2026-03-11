@@ -1,6 +1,6 @@
 # svlopp
 
-svlopp is a Linux only, event driven process supervisor built around a single epoll loop.
+svlopp is a minimal, Linux-specific process supervisor built around a single epoll loop and modern kernel primitives.
 
 **Alpha Software.**
 
@@ -8,9 +8,9 @@ svlopp is under active development and is not production ready. It currently tar
 
 ## What is this?
 
-Right now, svlopp is a Linux process supervisor that lives in user space: you define a set of processes and svlopp
-starts them, tracks them, and reaps them when they exit. The long term goal is to evolve svlopp into a minimal init
-system for Linux, focused on the essential responsibilities of init.
+Right now, svlopp is a Linux process supervisor that runs as a regular process (i.e. it is not PID 1). You define
+a set of processes and svlopp starts them, tracks them, and reaps them when they exit. The long term goal is to
+evolve svlopp into a minimal init system for Linux, focused on the essential responsibilities of init.
 
 ## Design Principles
 
@@ -246,9 +246,9 @@ configuration structure may change as new features are introduced.
 ## Limitations & Known Issues
 
 svlopp is still in an early stage, and several important pieces are either missing or incomplete:
-- svlopp is currently a user space process supervisor, and a bare-bones one at that
+- Running svlopp as PID 1 is not currently supported
 - Subreaping support is minimal. Orphaned descendants are reaped, but no additional semantics (such
-  as attribution to services) are currently implemented.
+  as attribution to services) are currently implemented
 - Logging is very limited and poorly structured, if at all
 
 These limitations are known and sometimes intentional at this stage. The focus so far has been on
