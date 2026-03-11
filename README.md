@@ -38,6 +38,26 @@ even before knowing that thing has a name and it's an idea well defined by the U
 
 ## High-level architecture
 
+```
+                     ┌───────────────┐
+                     │     epoll     │
+                     └───────┬───────┘
+                             │
+             ┌───────────────┼───────────────┐
+             │               │               │
+        ┌──────────┐   ┌──────────┐   ┌────────────┐
+        │ signalfd │   │ timerfd  │   │ control    │
+        │ (signals)│   │(periodic)│   │ FIFO       │
+        └────┬─────┘   └────┬─────┘   └─────┬──────┘
+             │              │               │
+             v              v               v
+     SIGCHLD / HUP /   enforce timeouts    start /
+     TERM / INT        and scheduled       stop /
+     reap children,    actions             restart services
+     reload,
+     shutdown
+```
+
 svlopp runs a single epoll loop that currently watches a `signalfd`, `timerfd` and a control FIFO.
 
 Signals are handled via `signalfd`, allowing them to be treated as regular events rather than asynchronous interruptions.
@@ -48,14 +68,15 @@ The following signals are currently handled:
 - **SIGHUP**: configuration reload, svlopp re-reads the configuration, diffs it against the current state and reconciles
 - **SIGTERM / SIGINT**: graceful shutdown, svlopp sends `SIGTERM` to all running services and waits for them to exit
 
-The `timerfd` fires periodically and is currently used to enforce shutdown deadlines, allowing svlopp to forcefully
-terminate child processes that ignore `SIGTERM`.
-
 On reload (`SIGHUP`), svlopp reads the configuration and reconciles it with the current runtime state: new services get
 added and started, removed services get stopped and removed, and changed services get restarted with their updated
 definition. Some of those actions can be performed immediately (for example, starting a new service or removing a stopped
 one), while others have to be deferred until the service process has exited. This preserves a single reaping path through
 `SIGCHLD` and keeps process lifecycle handling centralized and predictable.
+
+The `timerfd` fires periodically and is currently used to apply scheduled actions (such as those deferred during a reload
+after `SIGHUP`) and to enforce shutdown deadlines, allowing svlopp to forcefully terminate child processes that ignore
+`SIGTERM`.
 
 svlopp maintains a runtime directory (by default `/run/svlopp`) that is expected to reside on a tmpfs and contains only
 runtime generated state.
@@ -74,7 +95,7 @@ The file is rewritten whenever the runtime state changes which makes it importan
 
 ### Control FIFO
 
-The control FIFO is a named pipe that accepts binary commands from external sources, to start stop and restart individual services.
+The control FIFO is a named pipe that accepts binary commands from external sources, to start, stop and restart individual services.
 The protocol uses fixed-size frames of 9 bytes. The first byte encodes the operation, and the remaining 8 bytes carry the service
 id as a little-endian `u64`.
 Service ids are published in the status file. Writers are expected to resolve service names to ids by reading it.
