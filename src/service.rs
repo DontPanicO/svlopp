@@ -31,7 +31,7 @@ use crate::{
 
 /// Timeout for graceful shutdown (`SIGTERM`), after which the process
 /// is forcefully killed via `SIGKILL`
-const SERVICE_STOP_TIMEOUT: Duration = Duration::from_millis(500);
+const SERVICE_STOP_TIMEOUT: Duration = Duration::from_millis(5000);
 
 /// Process exit reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
