@@ -40,7 +40,7 @@ const ID_PFD: u64 = 3;
 const SIGINFO_BUF_LEN: usize = 16;
 const EVENTS_BUF_LEN: usize = 16;
 const CONTROL_PIPE_NAME: &str = "control";
-const STATUS_FILE_PATH: &str = "status";
+const STATUS_FILE_NAME: &str = "status";
 
 /// The status of the supervisor. When a shutdown is requested
 /// the supervisor may not stop immediately since it has to
@@ -68,7 +68,7 @@ fn flush_status_file(registry: &ServiceRegistry, buf: &mut String, path: &Status
 }
 
 fn run(args: &cli::CliArgs) -> std::io::Result<()> {
-    let status_file_path = StatusFilePath::new(args.run_dir.join(STATUS_FILE_PATH));
+    let status_file_path = StatusFilePath::new(args.run_dir.join(STATUS_FILE_NAME));
 
     let mut sv_state = SupervisorState::default();
 
