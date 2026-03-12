@@ -32,7 +32,7 @@ it might interact with, and the user's point of view by not trying to reduce the
 machines.
 
 This naturally leads to the last point: avoiding feature creep. Features that are not clearly in scope are better left out, and
-the burden — or the pleasure — of addressing those concerns should be left to other software, built specifically for that purpose,
+the burden - or the pleasure - of addressing those concerns should be left to other software, built specifically for that purpose,
 and better suited to solving that particular problem. That's something I see people - including myself - intuitively understanding
 even before knowing that thing has a name and it's an idea well defined by the Unix philosophy.
 
@@ -96,7 +96,7 @@ The file is rewritten whenever the runtime state changes which makes it importan
 ### Control FIFO
 
 The control FIFO is a named pipe that accepts binary commands from external sources, to start, stop and restart individual services.
-The protocol uses fixed-size frames of 9 bytes. The first byte encodes the operation, and the remaining 8 bytes carry the service
+The protocol uses fixed-size frames of 9 bytes: the first byte encodes the operation, and the remaining 8 bytes carry the service
 id as a little-endian `u64`.
 Service ids are published in the status file. Writers are expected to resolve service names to ids by reading it.
 
@@ -148,7 +148,7 @@ Configuration is required to define services. As of now svlopp is configured via
 file, and the service definition format consists of:
 - A service name
 - A command (the path to the binary)
-- Command arguments
+- An optional array for command arguments
 - An optional termination reaction
 - An optional working directory
 - Optional environment variables
@@ -157,7 +157,7 @@ file, and the service definition format consists of:
 ```toml
 [services.service_name]
 command = "service_bin"
-args = ["service", "options"]
+args = ["service", "options"] # optional
 on_exit = "Restart" # optional
 working_directory = "/home/myuser" # optional
 log_file_path = "/var/log/service_name.log" # optional
@@ -193,10 +193,10 @@ configuration reload triggered by `SIGHUP`).
 Supported values are:
 
 - `None` (default): do nothing. The service will not be restarted automatically, but svlopp will keep
-it in memory, so it can be started again via an explicit command (not yet supported).
-- `Restart`: restart the service after it exits.
+it in memory, so it can be started again via an explicit command
+- `Restart`: restart the service after it exits
 - `Remove`: remove the service from supervision after it exits. A configuration reload (`SIGHUP`) is
-required to start the service again.
+required to start the service again
 
 If a service is stopped by svlopp itself (e.g during shutdown, configuration reload or - once
 supported - via an explicit command) the fallback action is not taken.
