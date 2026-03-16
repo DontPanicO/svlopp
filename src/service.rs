@@ -29,9 +29,12 @@ use crate::{
     utils::is_crash_signal,
 };
 
-/// Timeout for graceful shutdown (`SIGTERM`), after which the process
-/// is forcefully killed via `SIGKILL`
-const SERVICE_STOP_TIMEOUT: Duration = Duration::from_millis(5000);
+/// Default graceful shutdown timeout in milliseconds
+const DEFAULT_STOP_TIMEOUT_MS: u64 = 5000;
+
+fn default_stop_timeout_ms() -> u64 {
+    DEFAULT_STOP_TIMEOUT_MS
+}
 
 /// Process exit reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -192,6 +195,10 @@ pub(crate) struct ServiceConfig {
     #[serde(rename = "on_exit")]
     #[serde(default)]
     pub(crate) fallback_pending_action: ServicePendingAction,
+    /// Timeout in milliseconds between `SIGTERM` and `SIGKILL` when
+    /// stopping the service. Defaults to 5000
+    #[serde(default = "default_stop_timeout_ms")]
+    pub(crate) stop_timeout_ms: u64,
 }
 
 impl ServiceConfig {
@@ -461,7 +468,10 @@ pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running(p) => {
             kill_process(p, Signal::TERM)?;
-            svc.state = ServiceState::Stopping(p, Instant::now() + SERVICE_STOP_TIMEOUT);
+            svc.state = ServiceState::Stopping(
+                p,
+                Instant::now() + Duration::from_millis(svc.config.stop_timeout_ms),
+            );
             Ok(())
         }
         _ => Ok(()),
