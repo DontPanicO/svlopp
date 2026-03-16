@@ -165,6 +165,35 @@ impl fmt::Display for ServiceState {
     }
 }
 
+/// Signals allowed for graceful service termination.
+///
+/// The names mirror the traditional POSIX `SIG*` names so that the
+/// configuration can use familiar values such as `SIGTERM` or `SIGQUIT`.
+#[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "UPPERCASE")]
+pub(crate) enum StopSignal {
+    #[default]
+    SigTerm,
+    SigInt,
+    SigQuit,
+    SigHup,
+    SigUsr1,
+    SigUsr2,
+}
+
+impl From<StopSignal> for Signal {
+    fn from(value: StopSignal) -> Self {
+        match value {
+            StopSignal::SigTerm => Signal::TERM,
+            StopSignal::SigInt => Signal::INT,
+            StopSignal::SigQuit => Signal::QUIT,
+            StopSignal::SigHup => Signal::HUP,
+            StopSignal::SigUsr1 => Signal::USR1,
+            StopSignal::SigUsr2 => Signal::USR2,
+        }
+    }
+}
+
 /// Service configuration
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub(crate) struct ServiceConfig {
@@ -195,7 +224,12 @@ pub(crate) struct ServiceConfig {
     #[serde(rename = "on_exit")]
     #[serde(default)]
     pub(crate) fallback_pending_action: ServicePendingAction,
-    /// Timeout in milliseconds between `SIGTERM` and `SIGKILL` when
+    /// Signal sent to a service process to gracefully stop it.
+    /// Valid options are: `SIGTERM` (default), `SIGINT`, `SIGQUIT`,
+    /// `SIGHUP`, `SIGUSR1`, `SIGUSR2`.
+    #[serde(default)]
+    pub(crate) stop_signal: StopSignal,
+    /// Timeout in milliseconds between `stop_signal` and `SIGKILL` when
     /// stopping the service. Defaults to 5000
     #[serde(default = "default_stop_timeout_ms")]
     pub(crate) stop_timeout_ms: u64,
@@ -460,14 +494,14 @@ pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()
     }
 }
 
-/// Stop a service by calling `kill(pid, SIGTERM)` and marks it as
+/// Stop a service by sending the configured stop signal and marks it as
 /// stopping by setting state to `ServiceState::Stopping`.
 /// This is a state transition: it only acts on `ServiceState::Running`
 /// services and is a no-op for any other state
 pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running(p) => {
-            kill_process(p, Signal::TERM)?;
+            kill_process(p, svc.config.stop_signal.into())?;
             svc.state = ServiceState::Stopping(
                 p,
                 Instant::now() + Duration::from_millis(svc.config.stop_timeout_ms),

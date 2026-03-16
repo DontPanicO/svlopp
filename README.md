@@ -66,7 +66,8 @@ threads or processes.
 The following signals are currently handled:
 - **SIGCHLD**: one or more child processes exited, svlopp reaps all exited children
 - **SIGHUP**: configuration reload, svlopp re-reads the configuration, diffs it against the current state and reconciles
-- **SIGTERM / SIGINT**: graceful shutdown, svlopp sends `SIGTERM` to all running services and waits for them to exit
+- **SIGTERM / SIGINT**: graceful shutdown, svlopp requests services to stop by sending their configured `stop_signal` (defaults
+  to `SIGTERM`) and waits for them to exit
 
 On reload (`SIGHUP`), svlopp reads the configuration and reconciles it with the current runtime state: new services get
 added and started, removed services get stopped and removed, and changed services get restarted with their updated
@@ -76,14 +77,14 @@ one), while others have to be deferred until the service process has exited. Thi
 
 The `timerfd` fires periodically and is currently used to apply scheduled actions (such as those deferred during a reload
 after `SIGHUP`) and to enforce shutdown deadlines, allowing svlopp to forcefully terminate child processes that ignore
-`SIGTERM`.
-Deadlines are computed when `SIGTERM` is sent by adding `stop_timeout_ms` to the current time (see [Configuration](#configuration)
-for more details). On each timerfd tick, svlopp checks for overdue deadlines and sends `SIGKILL`.
+the stop signal.
+Deadlines are computed when the configured stop signal is sent by adding `stop_timeout_ms` to the current time (see
+[Configuration](#configuration) for more details). On each timerfd tick, svlopp checks for overdue deadlines and sends `SIGKILL`.
 This provides two guarantees:
-1. `SIGKILL` is never sent before `stop_timeout_ms` has elapsed since `SIGTERM`.
+1. `SIGKILL` is never sent before `stop_timeout_ms` has elapsed since the stop signal.
 2. `SIGKILL` is sent on the first timerfd tick after the deadline.
-As a consequence, `stop_timeout_ms` is not the exact time between `SIGTERM` and `SIGKILL`, but the *minimum* amount of time
-that will elapse between them.
+As a consequence, `stop_timeout_ms` is not the exact time between the stop signal and `SIGKILL`, but the *minimum* amount
+of time that will elapse between them.
 
 svlopp maintains a runtime directory (by default `/run/svlopp`) that is expected to reside on a tmpfs and contains only
 runtime generated state.
@@ -168,6 +169,7 @@ args = ["service", "options"] # optional
 on_exit = "Restart" # optional
 working_directory = "/home/myuser" # optional
 log_file_path = "/var/log/service_name.log" # optional
+stop_signal = "SIGQUIT" # optional
 stop_timeout_ms = 5000 # optional
 
 [services.service_name.env] # optional
@@ -247,8 +249,17 @@ The optional `log_file_path` field specifies a file to which both `stdout` and `
 are redirected. If not set, they are redirected to `/dev/null`.
 The file is opened in append mode and svlopp does not perform any kind of log rotation or size management.
 
-The optional `stop_timeout_ms` field specifies how long svlopp waits after sending `SIGTERM` before
-forcefully terminating the service with `SIGKILL`.
+The optional `stop_signal` field specifies which signal svlopp sends to request a graceful shutdown of the
+service. Valid values are:
+- `SIGTERM` (default)
+- `SIGINT`
+- `SIGQUIT`
+- `SIGHUP`
+- `SIGUSR1`
+- `SIGUSR2`
+
+The optional `stop_timeout_ms` field specifies how long svlopp waits after sending the configured stop signal
+before forcefully terminating the service with `SIGKILL`.
 `SIGKILL` is sent at the earliest opportunity, which corresponds to the first timerfd tick after the
 configured timeout has elapsed.
 
