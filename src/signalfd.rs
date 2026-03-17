@@ -133,13 +133,12 @@ impl SignalfdSiginfo {
     }
 
     /// Create an empty `SignalfdSiginfo`.
-    /// # Safety
-    /// an empty `SignalfdSiginfo` contains uninitialized
-    /// data and can only be used to get a mutable pointer
-    /// with `as_mut_ptr`. This is intended for usage with
-    /// `libc::read`, to which the mutable pointer is passed.
-    /// Any other method call before a successful call to
-    /// `libc::read` is UB.
+    ///
+    /// It is intended to be used as a buffer passed to
+    /// `libc::read`. The returned value does not contain
+    /// any meaningful value until populated via `libc::read`
+    /// and reading its fields before that is logically
+    /// incorrect.
     #[inline(always)]
     pub(crate) fn empty() -> Self {
         Self {
