@@ -555,7 +555,7 @@ pub(crate) fn force_kill_service_process(pid: Pid) -> io::Result<()> {
 /// soon as they're discovered (e.g. when deserializing
 /// from config files) and pid association are inserted
 /// in `pid -> service_id` after the child process has
-/// successfully started.
+/// been successfully forked (in the parent).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ServiceRegistry {
     /// `service_id -> service`
