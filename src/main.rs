@@ -134,8 +134,8 @@ fn run(args: &cli::CliArgs) -> std::io::Result<()> {
         )?);
     }
 
-    for svc_id in 0..(service_registry.services().len() as u64) {
-        if let Some(svc) = service_registry.service_mut(svc_id) {
+    service_registry.with_maps_mut(|services_map, pids_map| {
+        for (svc_id, svc) in services_map.iter_mut() {
             match start_service(svc, &original_sigset) {
                 Ok(()) => {
                     let pid = svc.pid().expect("running service must have a pid");
@@ -145,7 +145,7 @@ fn run(args: &cli::CliArgs) -> std::io::Result<()> {
                         svc.name,
                         pid,
                     );
-                    service_registry.register_pid(pid, svc_id);
+                    pids_map.insert(pid, *svc_id);
                 }
                 Err(e) => {
                     svlogg!(
@@ -157,7 +157,7 @@ fn run(args: &cli::CliArgs) -> std::io::Result<()> {
                 }
             }
         }
-    }
+    });
 
     flush_status_file(&service_registry, &mut status_buf, &status_file_path);
 
