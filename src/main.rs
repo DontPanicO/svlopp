@@ -252,7 +252,7 @@ fn run(args: &cli::CliArgs) -> std::io::Result<()> {
                                         | ServiceStopReason::SupervisorTerminated => {
                                             ServicePendingAction::None
                                         }
-                                        _ => svc.config.fallback_pending_action,
+                                        _ => svc.fallback_pending_action(),
                                     },
                                     p => p,
                                 };

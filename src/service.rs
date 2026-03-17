@@ -363,6 +363,31 @@ impl Service {
         matches!(self.state, ServiceState::Stopped(_))
     }
 
+    #[inline(always)]
+    pub(crate) fn working_directory(&self) -> Option<&Path> {
+        self.config.working_directory.as_deref()
+    }
+
+    #[inline(always)]
+    pub(crate) fn log_file_path(&self) -> Option<&Path> {
+        self.config.log_file_path.as_deref()
+    }
+
+    #[inline(always)]
+    pub(crate) fn fallback_pending_action(&self) -> ServicePendingAction {
+        self.config.fallback_pending_action
+    }
+
+    #[inline(always)]
+    pub(crate) fn stop_signal(&self) -> Signal {
+        self.config.stop_signal.into()
+    }
+
+    #[inline(always)]
+    pub(crate) fn stop_timeout(&self) -> Duration {
+        Duration::from_millis(self.config.stop_timeout_ms)
+    }
+
     /// Update the service config and rebuild argv
     #[inline(always)]
     pub(crate) fn update_config(&mut self, config: ServiceConfig) -> io::Result<()> {
@@ -419,7 +444,7 @@ fn child_exec(
     if set_thread_signal_mask(sigset).is_err() {
         unsafe { libc::_exit(111) }
     }
-    if let Some(cwd) = &svc.config.working_directory
+    if let Some(cwd) = svc.working_directory()
         && chdir(cwd).is_err()
     {
         unsafe { libc::_exit(111) }
@@ -466,9 +491,7 @@ fn child_exec(
 pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()> {
     let devnull_fd = open("/dev/null", OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())?;
     let log_fd = svc
-        .config
-        .log_file_path
-        .as_ref()
+        .log_file_path()
         .map(|p| {
             open(
                 p,
@@ -501,11 +524,8 @@ pub(crate) fn start_service(svc: &mut Service, sigset: &SigSet) -> io::Result<()
 pub(crate) fn stop_service(svc: &mut Service) -> io::Result<()> {
     match svc.state {
         ServiceState::Running(p) => {
-            kill_process(p, svc.config.stop_signal.into())?;
-            svc.state = ServiceState::Stopping(
-                p,
-                Instant::now() + Duration::from_millis(svc.config.stop_timeout_ms),
-            );
+            kill_process(p, svc.stop_signal())?;
+            svc.state = ServiceState::Stopping(p, Instant::now() + svc.stop_timeout());
             Ok(())
         }
         _ => Ok(()),
