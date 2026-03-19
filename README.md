@@ -311,6 +311,19 @@ For a release build:
 cargo build --release
 ```
 
+## Testing
+
+Tests spawn svlopp with one or more services and interact with it via signals and the control FIFO
+to trigger specific events. Behavior is then verified by checking that the reported state (status file)
+matches the expected outcome *and* is consistent with the kernel state (e.g. pid existence in /proc).
+
+Tests are written in Python and run with pytest:
+
+```bash
+pip install -r requirements-test.txt
+PYTHONPATH=. pytest tests/
+```
+
 ## Contributing
 
 svlopp is in early development and I'm happy to have people look at it, poke at it, and share their thoughts.
