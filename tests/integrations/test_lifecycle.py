@@ -28,14 +28,14 @@ args = ["10"]
 
     _ = svlopp_proc(config_path)
 
-    def service_running():
+    def is_running():
         try:
             status = read_status(run_dir)
             return status.is_running("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(service_running, timeout=1.0)
+    wait_until(is_running, timeout=1.0)
 
     status = read_status(run_dir)
     line = status.get("test")
