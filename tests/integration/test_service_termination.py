@@ -56,8 +56,7 @@ args = ["10"]
     line = status.get("test")
 
     assert line.state == STATE_STOPPED
-    assert line.pid_or_reason.startswith(REASON_SIGNALED)
-    assert line.pid_or_reason.split("(")[1].rstrip(")") == "9"
+    assert line.pid_or_reason == f"{REASON_SIGNALED}(9)"
     assert not Path(f"/proc/{pid}").exists()
 
 
@@ -104,8 +103,7 @@ args = ["10"]
     line = status.get("test")
 
     assert line.state == STATE_STOPPED
-    assert line.pid_or_reason.startswith(REASON_SIGNALED)
-    assert line.pid_or_reason.split("(")[1].rstrip(")") == "11"
+    assert line.pid_or_reason == f"{REASON_SIGNALED}(11)"
     assert not Path(f"/proc/{pid}").exists()
 
 
@@ -134,8 +132,7 @@ args = ["-c", "exit 1"]
     line = status.get("test")
 
     assert line.state == STATE_STOPPED
-    assert line.pid_or_reason.startswith(REASON_EXITED)
-    assert line.pid_or_reason.split("(")[1].rstrip(")") == "1"
+    assert line.pid_or_reason == f"{REASON_EXITED}(1)"
 
 
 def test_service_success(tmp_path, run_dir, svlopp_proc):
@@ -162,5 +159,4 @@ command = "/bin/true"
     line = status.get("test")
 
     assert line.state == STATE_STOPPED
-    assert line.pid_or_reason.startswith(REASON_EXITED)
-    assert line.pid_or_reason.split("(")[1].rstrip(")") == "0"
+    assert line.pid_or_reason == f"{REASON_EXITED}(0)"
