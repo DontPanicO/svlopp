@@ -82,6 +82,93 @@ args = ["1"]
     assert line.pid_or_reason.startswith(REASON_EXITED)
 
 
+def test_service_start_fail_missing_binary(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    config_path.write_text(
+        """
+[services.test]
+command = "/bin/this_does_not_exist"
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def is_stopped():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("test")
+        except Exception:
+            return False
+
+    wait_until(is_stopped, timeout=1.0)
+
+    status = read_status(run_dir)
+    line = status.get("test")
+
+    assert line.state == STATE_STOPPED
+    assert line.pid_or_reason == f"{REASON_EXITED}(127)"
+
+
+def test_service_start_fail_missing_permission(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    config_path.write_text(
+        """
+[services.test]
+command = "/etc/shadow"
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def is_stopped():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("test")
+        except Exception:
+            return False
+
+    wait_until(is_stopped, timeout=1.0)
+
+    status = read_status(run_dir)
+    line = status.get("test")
+
+    assert line.state == STATE_STOPPED
+    assert line.pid_or_reason == f"{REASON_EXITED}(127)"
+
+
+def test_service_start_fail_woking_dir_does_not_exists(
+    tmp_path,
+    run_dir,
+    svlopp_proc,
+):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    config_path.write_text(
+        """
+[services.test]
+command = "sleep"
+args = ["10"]
+working_directory = "/does/not/exist"
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def is_stopped():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("test")
+        except Exception:
+            return False
+
+    wait_until(is_stopped, timeout=1.0)
+
+    status = read_status(run_dir)
+    line = status.get("test")
+
+    assert line.state == STATE_STOPPED
+    assert line.pid_or_reason == f"{REASON_EXITED}(111)"
+
+
 def test_graceful_shutdown(tmp_path, run_dir, svlopp_proc):
     config_path = tmp_path / CONFIG_FILE_NAME
     config_path.write_text(
