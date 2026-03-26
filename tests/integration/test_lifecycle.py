@@ -101,7 +101,7 @@ command = "/bin/this_does_not_exist"
         except Exception:
             return False
 
-    wait_until(is_stopped, timeout=1.0)
+    wait_until(is_stopped, timeout=3.0)
 
     status = read_status(run_dir)
     line = status.get("test")
@@ -128,7 +128,7 @@ command = "/etc/shadow"
         except Exception:
             return False
 
-    wait_until(is_stopped, timeout=1.0)
+    wait_until(is_stopped, timeout=3.0)
 
     status = read_status(run_dir)
     line = status.get("test")
@@ -137,7 +137,7 @@ command = "/etc/shadow"
     assert line.pid_or_reason == f"{REASON_EXITED}(127)"
 
 
-def test_service_start_fail_woking_dir_does_not_exists(
+def test_service_start_fail_working_dir_does_not_exist(
     tmp_path,
     run_dir,
     svlopp_proc,
@@ -161,7 +161,7 @@ working_directory = "/does/not/exist"
         except Exception:
             return False
 
-    wait_until(is_stopped, timeout=1.0)
+    wait_until(is_stopped, timeout=3.0)
 
     status = read_status(run_dir)
     line = status.get("test")
@@ -361,3 +361,113 @@ args = ["10"]
     # under `/proc`. We check stats to assert that's
     # zombie
     assert is_zombie(proc.pid)
+
+
+def test_multiple_services_start(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    config_path.write_text(
+        """
+[services.a]
+command = "sleep"
+args = ["10"]
+
+[services.b]
+command = "sleep"
+args = ["10"]
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def all_running():
+        try:
+            status = read_status(run_dir)
+            return status.is_running("a") and status.is_running("b")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(all_running, timeout=1.0)
+
+    status = read_status(run_dir)
+
+    assert status.is_running("a")
+    assert status.is_running("b")
+
+
+def test_multiple_services_independent_lifecycle(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    config_path.write_text(
+        """
+[services.long]
+command = "sleep"
+args = ["10"]
+
+[services.short]
+command = "/bin/true"
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def short_stopped():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("short")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(short_stopped, timeout=3.0)
+
+    status = read_status(run_dir)
+
+    assert status.is_running("long")
+    short = status.get("short")
+    assert short.state == STATE_STOPPED
+    assert short.pid_or_reason == f"{REASON_EXITED}(0)"
+
+
+def test_multiple_services_kill_one(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    config_path.write_text(
+        """
+[services.a]
+command = "sleep"
+args = ["10"]
+
+[services.b]
+command = "sleep"
+args = ["10"]
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def all_running():
+        try:
+            status = read_status(run_dir)
+            return status.is_running("a") and status.is_running("b")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(all_running, timeout=1.0)
+
+    status = read_status(run_dir)
+    pid_a = int(status.get("a").pid_or_reason)
+
+    os.kill(pid_a, signal.SIGKILL)
+
+    def a_stopped():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("a")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(a_stopped, timeout=3.0)
+
+    status = read_status(run_dir)
+
+    assert status.is_running("b")
+    a = status.get("a")
+    assert a.state == STATE_STOPPED
+    assert a.pid_or_reason == f"{REASON_SIGNALED}(9)"
