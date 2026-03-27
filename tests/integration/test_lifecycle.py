@@ -4,10 +4,9 @@
 
 import os
 import signal
-from pathlib import Path
 
 from helpers.status_file import read_status
-from helpers.utils import is_zombie, wait_until
+from helpers.utils import is_zombie, wait_until, pid_exists
 from constants import (
     STATE_RUNNING,
     STATE_STOPPED,
@@ -29,21 +28,20 @@ args = ["10"]
 
     _ = svlopp_proc(config_path)
 
-    def is_running():
+    def is_test_running():
         try:
             status = read_status(run_dir)
             return status.is_running("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_running, timeout=1.0)
+    wait_until(is_test_running, timeout=1.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_RUNNING
-    assert line.pid_or_reason.isdigit()
-    assert Path(f"/proc/{line.pid_or_reason}").exists()
+    test = status.get("test")
+    assert test.state == STATE_RUNNING
+    assert pid_exists(int(test.pid_or_reason))
 
 
 def test_service_exits(tmp_path, run_dir, svlopp_proc):
@@ -58,29 +56,33 @@ args = ["1"]
 
     _ = svlopp_proc(config_path)
 
-    def is_running():
+    def is_test_running():
         try:
             status = read_status(run_dir)
             return status.is_running("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_running, timeout=1.0)
+    wait_until(is_test_running, timeout=1.0)
 
-    def is_stopped():
+    status = read_status(run_dir)
+    old_test_pid = int(status.get("test").pid_or_reason)
+
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason.startswith(REASON_EXITED)
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason.startswith(REASON_EXITED)
+    assert not pid_exists(old_test_pid)
 
 
 def test_service_start_fail_missing_binary(tmp_path, run_dir, svlopp_proc):
@@ -94,20 +96,20 @@ command = "/bin/this_does_not_exist"
 
     _ = svlopp_proc(config_path)
 
-    def is_stopped():
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
-        except Exception:
+        except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason == f"{REASON_EXITED}(127)"
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_EXITED}(127)"
 
 
 def test_service_start_fail_missing_permission(tmp_path, run_dir, svlopp_proc):
@@ -121,20 +123,20 @@ command = "/etc/shadow"
 
     _ = svlopp_proc(config_path)
 
-    def is_stopped():
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
-        except Exception:
+        except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason == f"{REASON_EXITED}(127)"
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_EXITED}(127)"
 
 
 def test_service_start_fail_working_dir_does_not_exist(
@@ -154,20 +156,20 @@ working_directory = "/does/not/exist"
 
     _ = svlopp_proc(config_path)
 
-    def is_stopped():
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
-        except Exception:
+        except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason == f"{REASON_EXITED}(111)"
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_EXITED}(111)"
 
 
 def test_service_signaled(tmp_path, run_dir, svlopp_proc):
@@ -182,36 +184,35 @@ args = ["10"]
 
     _ = svlopp_proc(config_path)
 
-    def is_running():
+    def is_test_running():
         try:
             status = read_status(run_dir)
             return status.is_running("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_running, timeout=1.0)
+    wait_until(is_test_running, timeout=1.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
-    pid = int(line.pid_or_reason)
+    test_pid = int(status.get("test").pid_or_reason)
 
-    os.kill(pid, signal.SIGKILL)
+    os.kill(test_pid, signal.SIGKILL)
 
-    def is_stopped():
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason == f"{REASON_SIGNALED}(9)"
-    assert not Path(f"/proc/{pid}").exists()
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_SIGNALED}(9)"
+    assert not pid_exists(test_pid)
 
 
 # crashed and killed are currently both represented as "signaled(...)"
@@ -228,37 +229,35 @@ args = ["10"]
 
     _ = svlopp_proc(config_path)
 
-    def is_running():
+    def is_test_running():
         try:
             status = read_status(run_dir)
             return status.is_running("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_running, timeout=1.0)
+    wait_until(is_test_running, timeout=1.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
+    test_pid = int(status.get("test").pid_or_reason)
 
-    pid = int(line.pid_or_reason)
+    os.kill(test_pid, signal.SIGSEGV)
 
-    os.kill(pid, signal.SIGSEGV)
-
-    def is_stopped():
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason == f"{REASON_SIGNALED}(11)"
-    assert not Path(f"/proc/{pid}").exists()
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_SIGNALED}(11)"
+    assert not pid_exists(test_pid)
 
 
 def test_service_error(tmp_path, run_dir, svlopp_proc):
@@ -273,20 +272,20 @@ args = ["-c", "exit 1"]
 
     _ = svlopp_proc(config_path)
 
-    def is_stopped():
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason == f"{REASON_EXITED}(1)"
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_EXITED}(1)"
 
 
 def test_service_success(tmp_path, run_dir, svlopp_proc):
@@ -300,20 +299,20 @@ command = "/bin/true"
 
     _ = svlopp_proc(config_path)
 
-    def is_stopped():
+    def is_test_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_stopped, timeout=3.0)
+    wait_until(is_test_stopped, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
 
-    assert line.state == STATE_STOPPED
-    assert line.pid_or_reason == f"{REASON_EXITED}(0)"
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_EXITED}(0)"
 
 
 def test_graceful_shutdown(tmp_path, run_dir, svlopp_proc):
@@ -328,14 +327,14 @@ args = ["10"]
 
     proc = svlopp_proc(config_path)
 
-    def is_running():
+    def is_test_running():
         try:
             status = read_status(run_dir)
             return status.is_running("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_running, timeout=1.0)
+    wait_until(is_test_running, timeout=1.0)
 
     # Since svlopp deletes the run dir before exiting
     # we can't rely on the status file to check if
@@ -350,13 +349,13 @@ args = ["10"]
 
     os.kill(proc.pid, signal.SIGTERM)
 
-    def all_dead():
-        return all(not Path(f"/proc/{pid}").exists() for pid in pids)
+    def all_services_dead():
+        return all(not pid_exists(pid) for pid in pids)
 
-    wait_until(all_dead, timeout=3.0)
+    wait_until(all_services_dead, timeout=3.0)
 
     for pid in pids:
-        assert not Path(f"/proc/{pid}").exists()
+        assert not pid_exists(pid)
     # svlopp has not been reaped yet, so it still exists
     # under `/proc`. We check stats to assert that's
     # zombie
@@ -379,22 +378,26 @@ args = ["10"]
 
     _ = svlopp_proc(config_path)
 
-    def all_running():
+    def all_services_running():
         try:
             status = read_status(run_dir)
             return status.is_running("a") and status.is_running("b")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(all_running, timeout=1.0)
+    wait_until(all_services_running, timeout=1.0)
 
     status = read_status(run_dir)
 
-    assert status.is_running("a")
-    assert status.is_running("b")
+    a = status.get("a")
+    b = status.get("b")
+    assert a.state == STATE_RUNNING
+    assert b.state == STATE_RUNNING
+    assert pid_exists(int(a.pid_or_reason))
+    assert pid_exists(int(b.pid_or_reason))
 
 
-def test_multiple_services_independent_lifecycle(tmp_path, run_dir, svlopp_proc):
+def test_services_do_not_interfere(tmp_path, run_dir, svlopp_proc):
     config_path = tmp_path / CONFIG_FILE_NAME
     config_path.write_text(
         """
@@ -409,20 +412,22 @@ command = "/bin/true"
 
     _ = svlopp_proc(config_path)
 
-    def short_stopped():
+    def is_short_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("short")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(short_stopped, timeout=3.0)
+    wait_until(is_short_stopped, timeout=3.0)
 
     status = read_status(run_dir)
 
-    assert status.is_running("long")
+    long = status.get("long")
     short = status.get("short")
+    assert long.state == STATE_RUNNING
     assert short.state == STATE_STOPPED
+    assert pid_exists(int(long.pid_or_reason))
     assert short.pid_or_reason == f"{REASON_EXITED}(0)"
 
 
@@ -442,32 +447,35 @@ args = ["10"]
 
     _ = svlopp_proc(config_path)
 
-    def all_running():
+    def all_services_running():
         try:
             status = read_status(run_dir)
             return status.is_running("a") and status.is_running("b")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(all_running, timeout=1.0)
+    wait_until(all_services_running, timeout=1.0)
 
     status = read_status(run_dir)
-    pid_a = int(status.get("a").pid_or_reason)
+    a_pid = int(status.get("a").pid_or_reason)
 
-    os.kill(pid_a, signal.SIGKILL)
+    os.kill(a_pid, signal.SIGKILL)
 
-    def a_stopped():
+    def is_a_stopped():
         try:
             status = read_status(run_dir)
             return status.is_stopped("a")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(a_stopped, timeout=3.0)
+    wait_until(is_a_stopped, timeout=3.0)
 
     status = read_status(run_dir)
 
-    assert status.is_running("b")
     a = status.get("a")
+    b = status.get("b")
     assert a.state == STATE_STOPPED
+    assert b.state == STATE_RUNNING
     assert a.pid_or_reason == f"{REASON_SIGNALED}(9)"
+    assert not pid_exists(a_pid)
+    assert pid_exists(int(b.pid_or_reason))
