@@ -25,5 +25,5 @@ def is_zombie(pid: int) -> bool:
         return False
 
 
-def pid_exists(pid: int | str) -> bool:
+def pid_exists(pid: int) -> bool:
     return Path(f"/proc/{pid}").exists()
