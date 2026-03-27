@@ -70,6 +70,9 @@ class StatusFile:
                 return line
         raise KeyError(service_name)
 
+    def has(self, service_name: str) -> bool:
+        return any(line.service_name == service_name for line in self.lines)
+
     def is_running(self, service_name: str) -> bool:
         return self.get(service_name).state == STATE_RUNNING
 
