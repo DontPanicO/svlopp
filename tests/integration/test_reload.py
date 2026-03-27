@@ -4,10 +4,9 @@
 
 import os
 import signal
-from pathlib import Path
 
 from helpers.status_file import read_status
-from helpers.utils import wait_until
+from helpers.utils import wait_until, pid_exists
 from constants import (
     STATE_RUNNING,
     CONFIG_FILE_NAME,
@@ -27,14 +26,14 @@ args = ["10"]
 
     proc = svlopp_proc(config_path)
 
-    def a_running():
+    def is_a_running():
         try:
             status = read_status(run_dir)
             return status.is_running("a")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(a_running, timeout=1.0)
+    wait_until(is_a_running, timeout=1.0)
 
     config_path.write_text(
         """
@@ -50,19 +49,22 @@ args = ["10"]
 
     os.kill(proc.pid, signal.SIGHUP)
 
-    def b_running():
+    def is_b_running():
         try:
             status = read_status(run_dir)
             return status.is_running("b")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(b_running, timeout=2.0)
+    wait_until(is_b_running, timeout=2.0)
 
     status = read_status(run_dir)
-
-    assert status.is_running("a")
-    assert status.is_running("b")
+    a = status.get("a")
+    b = status.get("b")
+    assert a.state == STATE_RUNNING
+    assert b.state == STATE_RUNNING
+    assert pid_exists(int(a.pid_or_reason))
+    assert pid_exists(int(b.pid_or_reason))
 
 
 def test_reload_remove_service(tmp_path, run_dir, svlopp_proc):
@@ -82,17 +84,17 @@ args = ["10"]
 
     proc = svlopp_proc(config_path)
 
-    def both_running():
+    def all_services_running():
         try:
             status = read_status(run_dir)
             return status.is_running("a") and status.is_running("b")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(both_running, timeout=1.0)
+    wait_until(all_services_running, timeout=1.0)
 
     status = read_status(run_dir)
-    pid_b = int(status.get("b").pid_or_reason)
+    b_pid = int(status.get("b").pid_or_reason)
 
     config_path.write_text(
         """
@@ -104,27 +106,27 @@ args = ["10"]
 
     os.kill(proc.pid, signal.SIGHUP)
 
-    def b_removed():
+    def is_b_removed():
         try:
             status = read_status(run_dir)
-            status.get("b")
-            return False
-        except KeyError:
-            return True
+            return not status.has("b")
         except FileNotFoundError:
             return False
 
-    wait_until(b_removed, timeout=2.0)
+    wait_until(is_b_removed, timeout=3.0)
 
-    def b_dead():
-        return not Path(f"/proc/{pid_b}").exists()
+    def is_b_dead():
+        return not pid_exists(b_pid)
 
-    wait_until(b_dead, timeout=3.0)
-
-    assert not Path(f"/proc/{pid_b}").exists()
+    wait_until(is_b_dead, timeout=3.0)
 
     status = read_status(run_dir)
-    assert status.is_running("a")
+
+    a = status.get("a")
+    assert not status.has("b")
+    assert a.state == STATE_RUNNING
+    assert pid_exists(int(a.pid_or_reason))
+    assert not pid_exists(b_pid)
 
 
 def test_reload_change_service(tmp_path, run_dir, svlopp_proc):
@@ -140,14 +142,14 @@ args = ["10"]
 
     proc = svlopp_proc(config_path)
 
-    def is_running():
+    def is_test_running():
         try:
             status = read_status(run_dir)
             return status.is_running("test")
         except (FileNotFoundError, KeyError):
             return False
 
-    wait_until(is_running, timeout=1.0)
+    wait_until(is_test_running, timeout=1.0)
 
     status = read_status(run_dir)
     old_pid = int(status.get("test").pid_or_reason)
@@ -162,7 +164,7 @@ args = ["20"]
 
     os.kill(proc.pid, signal.SIGHUP)
 
-    def new_pid_running():
+    def is_test_restarted():
         try:
             status = read_status(run_dir)
             line = status.get("test")
@@ -172,15 +174,135 @@ args = ["20"]
         except (FileNotFoundError, KeyError, ValueError):
             return False
 
-    wait_until(new_pid_running, timeout=3.0)
+    wait_until(is_test_restarted, timeout=3.0)
 
     status = read_status(run_dir)
-    line = status.get("test")
-    new_pid = int(line.pid_or_reason)
+    test = status.get("test")
 
-    assert line.state == STATE_RUNNING
-    assert new_pid != old_pid
+    assert test.state == STATE_RUNNING
+    assert int(test.pid_or_reason) != old_pid
+    assert not pid_exists(old_pid)
+    assert pid_exists(int(test.pid_or_reason))
 
-    wait_until(lambda: not Path(f"/proc/{old_pid}").exists(), timeout=3.0)
 
-    assert Path(f"/proc/{new_pid}").exists()
+def test_reload_add_remove(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+
+    config_path.write_text(
+        """
+[services.a]
+command = "sleep"
+args = ["10"]
+"""
+    )
+
+    proc = svlopp_proc(config_path)
+
+    def is_a_running():
+        try:
+            status = read_status(run_dir)
+            return status.is_running("a")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(is_a_running, timeout=1.0)
+
+    status = read_status(run_dir)
+    a_pid = int(status.get("a").pid_or_reason)
+
+    config_path.write_text(
+        """
+[services.b]
+command = "sleep"
+args = ["10"]
+"""
+    )
+
+    os.kill(proc.pid, signal.SIGHUP)
+
+    def reconciled():
+        try:
+            status = read_status(run_dir)
+            return status.is_running("b") and not status.has("a")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(reconciled, timeout=5.0)
+
+    status = read_status(run_dir)
+
+    b = status.get("b")
+    assert not status.has("a")
+    assert b.state == STATE_RUNNING
+    assert pid_exists(int(b.pid_or_reason))
+    assert not pid_exists(a_pid)
+
+
+def test_reload_add_remove_change(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+
+    config_path.write_text(
+        """
+[services.a]
+command = "sleep"
+args = ["10"]
+
+[services.b]
+command = "sleep"
+args = ["12"]
+"""
+    )
+
+    proc = svlopp_proc(config_path)
+
+    def all_services_running():
+        try:
+            status = read_status(run_dir)
+            return status.is_running("a") and status.is_running("b")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(all_services_running, timeout=1.0)
+
+    status = read_status(run_dir)
+    old_a_pid = int(status.get("a").pid_or_reason)
+    b_pid = int(status.get("b").pid_or_reason)
+
+    config_path.write_text(
+        """
+[services.a]
+command = "sleep"
+args = ["12"]
+
+[services.c]
+command = "sleep"
+args = ["15"]
+"""
+    )
+
+    os.kill(proc.pid, signal.SIGHUP)
+
+    def reconciled():
+        try:
+            status = read_status(run_dir)
+            a = status.get("a")
+            return (
+                a.state == STATE_RUNNING
+                and status.is_running("c")
+                and not status.has("b")
+                and int(a.pid_or_reason) != old_a_pid
+            )
+        except (FileNotFoundError, KeyError, ValueError):
+            return False
+
+    wait_until(reconciled, timeout=5.0)
+
+    status = read_status(run_dir)
+    a = status.get("a")
+    c = status.get("c")
+    assert a.state == STATE_RUNNING
+    assert c.state == STATE_RUNNING
+    assert pid_exists(int(a.pid_or_reason))
+    assert pid_exists(int(c.pid_or_reason))
+    assert not pid_exists(old_a_pid)
+    assert not pid_exists(b_pid)
