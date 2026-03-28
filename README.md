@@ -161,6 +161,7 @@ file, and the service definition format consists of:
 - An optional working directory
 - Optional environment variables
 - An optional log file
+- Optional UID and GID
 
 ```toml
 [services.service_name]
@@ -175,6 +176,10 @@ stop_timeout_ms = 5000 # optional
 [services.service_name.env] # optional
 FOO = "BAR"
 BAZ = "QUX"
+
+[services.service_name.user_group] # optional
+uid = 1000
+gid = 1000
 ```
 
 Services are expected to run in the foreground. svlopp supervises the processes it starts and reaps
@@ -248,6 +253,10 @@ PATH = "/usr/bin"
 The optional `log_file_path` field specifies a file to which both `stdout` and `stderr` of the service
 are redirected. If not set, they are redirected to `/dev/null`.
 The file is opened in append mode and svlopp does not perform any kind of log rotation or size management.
+
+The optional `user_group` table defines the UID and GID for the service process. The table itself is
+optional, but if present it must contain both fields. If `user_group` is not specified, the service
+process inherits the UID and GID of the svlopp process.
 
 The optional `stop_signal` field specifies which signal svlopp sends to request a graceful shutdown of the
 service. Valid values are:

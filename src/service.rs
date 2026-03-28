@@ -24,6 +24,7 @@ use serde::Deserialize;
 use crate::control::ControlOp;
 use crate::logging::LogLevel;
 use crate::svlogg;
+use crate::utils::cvt;
 use crate::{
     signalfd::{SigSet, set_thread_signal_mask},
     utils::is_crash_signal,
@@ -194,6 +195,13 @@ impl From<StopSignal> for Signal {
     }
 }
 
+/// User and group identifiers for a service process
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct UserGroup {
+    pub(crate) uid: u32,
+    pub(crate) gid: u32,
+}
+
 /// Service configuration
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub(crate) struct ServiceConfig {
@@ -214,6 +222,9 @@ pub(crate) struct ServiceConfig {
     /// If `None` they are piped to `/dev/null`
     #[serde(default)]
     pub(crate) log_file_path: Option<PathBuf>,
+    /// Optional `uid` and `gid` for the service process.
+    #[serde(default)]
+    pub(crate) user_group: Option<UserGroup>,
     /// Fallback pending action to take.
     /// This allows to define restart behavior (e.g.
     /// if a service exits, restart it), but only
@@ -374,6 +385,11 @@ impl Service {
     }
 
     #[inline(always)]
+    pub(crate) fn user_group(&self) -> Option<UserGroup> {
+        self.config.user_group
+    }
+
+    #[inline(always)]
     pub(crate) fn fallback_pending_action(&self) -> ServicePendingAction {
         self.config.fallback_pending_action
     }
@@ -443,6 +459,16 @@ fn child_exec(
 ) -> ! {
     if set_thread_signal_mask(sigset).is_err() {
         unsafe { libc::_exit(111) }
+    }
+    if let Some(ug) = svc.user_group() {
+        unsafe {
+            if cvt(libc::setgid(ug.gid)).is_err() {
+                libc::_exit(111)
+            }
+            if cvt(libc::setuid(ug.uid)).is_err() {
+                libc::_exit(111)
+            }
+        }
     }
     if let Some(cwd) = svc.working_directory()
         && chdir(cwd).is_err()
