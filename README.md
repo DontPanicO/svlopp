@@ -162,6 +162,8 @@ file, and the service definition format consists of:
 - Optional environment variables
 - An optional log file
 - Optional UID and GID
+- An optional stop signal
+- An optional stop timeout
 
 ```toml
 [services.service_name]
