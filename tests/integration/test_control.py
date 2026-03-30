@@ -6,6 +6,7 @@ from helpers.status_file import read_status
 from helpers.utils import pid_exists, wait_until
 from constants import (
     CONFIG_FILE_NAME,
+    REASON_SIGNALED,
     REASON_SUPERVISOR_TERMINATED,
     RESTART_OPCODE,
     START_OPCDOE,
@@ -57,7 +58,9 @@ args = ["10"]
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == REASON_SUPERVISOR_TERMINATED
+    assert (
+        test.pid_or_reason == f"{REASON_SUPERVISOR_TERMINATED}({REASON_SIGNALED}(15))"
+    )
     assert not pid_exists(test_pid)
 
 

@@ -46,6 +46,15 @@ pub(crate) enum ExitReason {
     Signaled(i32),
 }
 
+impl std::fmt::Display for ExitReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Exited(i) => write!(f, "exited({})", i),
+            Self::Signaled(i) => write!(f, "signaled({})", i),
+        }
+    }
+}
+
 impl ExitReason {
     pub(crate) fn from_wait_status(status: WaitStatus) -> Option<Self> {
         if status.exited() {
@@ -73,7 +82,7 @@ pub(crate) enum ServiceStopReason {
     NeverStarted,
     /// Service has been gracefully terminated by
     /// the supervisor
-    SupervisorTerminated,
+    SupervisorTerminated(ExitReason),
     /// Service successfully completed (i.e.
     /// exited with code == 0)
     Success,
@@ -94,11 +103,11 @@ impl fmt::Display for ServiceStopReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NeverStarted => write!(f, "never_started"),
-            Self::SupervisorTerminated => write!(f, "supervisor_terminated"),
-            Self::Success => write!(f, "exited(0)"),
-            Self::Error(e) => write!(f, "exited({})", e),
-            Self::Crashed(s) => write!(f, "signaled({})", s),
-            Self::Killed(s) => write!(f, "signaled({})", s),
+            Self::SupervisorTerminated(er) => write!(f, "supervisor_terminated({})", er),
+            Self::Success => write!(f, "success"),
+            Self::Error(e) => write!(f, "error({})", e),
+            Self::Crashed(s) => write!(f, "crashed({})", s),
+            Self::Killed(s) => write!(f, "killed({})", s),
         }
     }
 }
@@ -111,7 +120,7 @@ impl ServiceStopReason {
         match exit_reason {
             ExitReason::Exited(code) => {
                 if matches!(svc_state, ServiceState::Stopping(_, _)) {
-                    Self::SupervisorTerminated
+                    Self::SupervisorTerminated(exit_reason)
                 } else if code == 0 {
                     Self::Success
                 } else {
@@ -122,7 +131,7 @@ impl ServiceStopReason {
                 if is_crash_signal(sig) {
                     Self::Crashed(sig)
                 } else if matches!(svc_state, ServiceState::Stopping(_, _)) {
-                    Self::SupervisorTerminated
+                    Self::SupervisorTerminated(exit_reason)
                 } else {
                     Self::Killed(sig)
                 }

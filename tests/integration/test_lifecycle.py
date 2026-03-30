@@ -8,10 +8,12 @@ import signal
 from helpers.status_file import read_status
 from helpers.utils import is_zombie, wait_until, pid_exists
 from constants import (
+    REASON_CRASHED,
+    REASON_ERROR,
+    REASON_KILLED,
+    REASON_SUCCESS,
     STATE_RUNNING,
     STATE_STOPPED,
-    REASON_EXITED,
-    REASON_SIGNALED,
     CONFIG_FILE_NAME,
 )
 
@@ -81,7 +83,7 @@ args = ["1"]
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason.startswith(REASON_EXITED)
+    assert test.pid_or_reason == REASON_SUCCESS
     assert not pid_exists(old_test_pid)
 
 
@@ -109,7 +111,7 @@ command = "/bin/this_does_not_exist"
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == f"{REASON_EXITED}(127)"
+    assert test.pid_or_reason == f"{REASON_ERROR}(127)"
 
 
 def test_service_start_fail_missing_permission(tmp_path, run_dir, svlopp_proc):
@@ -136,7 +138,7 @@ command = "/etc/shadow"
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == f"{REASON_EXITED}(127)"
+    assert test.pid_or_reason == f"{REASON_ERROR}(127)"
 
 
 def test_service_start_fail_working_dir_does_not_exist(
@@ -169,7 +171,7 @@ working_directory = "/does/not/exist"
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == f"{REASON_EXITED}(111)"
+    assert test.pid_or_reason == f"{REASON_ERROR}(111)"
 
 
 def test_service_signaled(tmp_path, run_dir, svlopp_proc):
@@ -211,12 +213,10 @@ args = ["10"]
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == f"{REASON_SIGNALED}(9)"
+    assert test.pid_or_reason == f"{REASON_KILLED}(9)"
     assert not pid_exists(test_pid)
 
 
-# crashed and killed are currently both represented as "signaled(...)"
-# in the status file. This test will become stricter if that changes.
 def test_service_crashed(tmp_path, run_dir, svlopp_proc):
     config_path = tmp_path / CONFIG_FILE_NAME
     config_path.write_text(
@@ -256,7 +256,7 @@ args = ["10"]
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == f"{REASON_SIGNALED}(11)"
+    assert test.pid_or_reason == f"{REASON_CRASHED}(11)"
     assert not pid_exists(test_pid)
 
 
@@ -285,7 +285,7 @@ args = ["-c", "exit 1"]
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == f"{REASON_EXITED}(1)"
+    assert test.pid_or_reason == f"{REASON_ERROR}(1)"
 
 
 def test_service_success(tmp_path, run_dir, svlopp_proc):
@@ -312,7 +312,7 @@ command = "/bin/true"
 
     test = status.get("test")
     assert test.state == STATE_STOPPED
-    assert test.pid_or_reason == f"{REASON_EXITED}(0)"
+    assert test.pid_or_reason == REASON_SUCCESS
 
 
 def test_graceful_shutdown(tmp_path, run_dir, svlopp_proc):
@@ -428,7 +428,7 @@ command = "/bin/true"
     assert long.state == STATE_RUNNING
     assert short.state == STATE_STOPPED
     assert pid_exists(int(long.pid_or_reason))
-    assert short.pid_or_reason == f"{REASON_EXITED}(0)"
+    assert short.pid_or_reason == REASON_SUCCESS
 
 
 def test_multiple_services_kill_one(tmp_path, run_dir, svlopp_proc):
@@ -476,6 +476,6 @@ args = ["10"]
     b = status.get("b")
     assert a.state == STATE_STOPPED
     assert b.state == STATE_RUNNING
-    assert a.pid_or_reason == f"{REASON_SIGNALED}(9)"
+    assert a.pid_or_reason == f"{REASON_KILLED}(9)"
     assert not pid_exists(a_pid)
     assert pid_exists(int(b.pid_or_reason))

@@ -249,7 +249,7 @@ fn run(args: &cli::CliArgs) -> std::io::Result<()> {
                                 let pending = match svc.take_pending_action() {
                                     ServicePendingAction::None => match stop_reason {
                                         ServiceStopReason::NeverStarted
-                                        | ServiceStopReason::SupervisorTerminated => {
+                                        | ServiceStopReason::SupervisorTerminated(_) => {
                                             ServicePendingAction::None
                                         }
                                         _ => svc.fallback_pending_action(),

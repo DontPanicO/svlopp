@@ -16,6 +16,10 @@ STATE_STOPPED = "stopped"
 REASON_EXITED = "exited"
 REASON_SIGNALED = "signaled"
 REASON_SUPERVISOR_TERMINATED = "supervisor_terminated"
+REASON_SUCCESS = "success"
+REASON_ERROR = "error"
+REASON_CRASHED = "crashed"
+REASON_KILLED = "killed"
 
 STOP_OPCODE = 0x41
 START_OPCDOE = 0x42
