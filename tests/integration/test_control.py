@@ -13,7 +13,7 @@ from constants import (
     STATE_STOPPED,
     STOP_OPCODE,
 )
-from tests.helpers.control_fifo import send_control_op
+from helpers.control_fifo import send_control_op
 
 
 def test_control_stop(tmp_path, run_dir, svlopp_proc):
