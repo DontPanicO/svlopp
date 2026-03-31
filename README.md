@@ -225,31 +225,26 @@ The optional `env` table defines the environment for the service process. If `en
 the service inherits svlopp's current environment; otherwise, the inherited environment is completely
 replaced by the variables defined in `env`.
 
-This means that specifying an empty `env` results in a (mostly) empty environment and users are
-responsible for defining variables such as `PATH` if the command lookup relies on it.
+This means that specifying an empty `env` results in a (mostly) empty environment for the service
+process and users are responsible for defining any variable the command may rely upon, such as `HOME`
+or `PATH`. Specifically for the latter, it is not required to define it just for command lookup
+as that happens before the new environment replaces the inherited one.
 
 ```toml
-# this will fail (no `PATH` defined)
+# This is fine as command lookup still uses
+# the parent `PATH`
 [services.service_name]
 command = "sleep"
 args = ["infinity"]
 
 [services.service_name.env]
 
-# this is fine (absolute path, no `PATH` needed)
+# Here `PATH` is an empty string
 [services.service_name]
-command = "/usr/bin/sleep"
-args = ["infinity"]
+command = "/bin/sh"
+args = ["-c", "echo $PATH"]
 
 [services.service_name.env]
-
-# this is also fine (`PATH` explicitly defined)
-[services.service_name]
-command = "sleep"
-args = ["infinity"]
-
-[services.service_name.env]
-PATH = "/usr/bin"
 ```
 
 The optional `log_file_path` field specifies a file to which both `stdout` and `stderr` of the service
