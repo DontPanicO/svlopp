@@ -99,3 +99,36 @@ args = ["-c", "/bin/echo $HOME > {output_file_path}"]
     assert output_file_path.exists()
     content = output_file_path.read_text().strip()
     assert content == ""
+
+
+def test_env_with_log_file(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    log_file_path = tmp_path / "test_log"
+    foo = "BAR"
+
+    config_path.write_text(
+        f"""
+[services.test]
+command = "/bin/sh"
+args = ["-c", "/bin/echo $FOO"]
+log_file_path = "{log_file_path}"
+
+[services.test.env]
+FOO = "{foo}"
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def is_test_stopped():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("test")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(is_test_stopped, timeout=3.0)
+
+    assert log_file_path.exists()
+    content = log_file_path.read_text().strip()
+    assert content == foo

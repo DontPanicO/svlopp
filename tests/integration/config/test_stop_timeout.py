@@ -56,3 +56,47 @@ stop_timeout_ms = 1000
     test = status.get("test")
     assert test.state == STATE_STOPPED
     assert test.pid_or_reason == f"{REASON_SUPERVISOR_TERMINATED}({REASON_SIGNALED}(9))"
+
+
+def test_stop_timeout_with_other_stop_signal(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+
+    config_path.write_text(
+        """
+[services.test]
+command = "/bin/bash"
+args = ["-c", "trap '' SIGINT; while true; do :; done"]
+stop_signal = "SIGINT"
+stop_timeout_ms = 1000
+"""
+    )
+
+    _ = svlopp_proc(config_path)
+
+    def is_test_running():
+        try:
+            status = read_status(run_dir)
+            return status.is_running("test")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(is_test_running, timeout=1.0)
+
+    status = read_status(run_dir)
+    test = status.get("test")
+    send_control_op(run_dir, STOP_OPCODE, test.service_id)
+
+    def is_test_stopped():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("test")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(is_test_stopped, timeout=3.0)
+
+    status = read_status(run_dir)
+
+    test = status.get("test")
+    assert test.state == STATE_STOPPED
+    assert test.pid_or_reason == f"{REASON_SUPERVISOR_TERMINATED}({REASON_SIGNALED}(9))"
