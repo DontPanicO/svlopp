@@ -106,7 +106,10 @@ The file is rewritten whenever the runtime state changes which makes it importan
 
 The control FIFO is a named pipe that accepts binary commands from external sources, to start, stop and restart individual services.
 The protocol uses fixed-size frames of 9 bytes: the first byte encodes the operation, and the remaining 8 bytes carry the service
-id as a little-endian `u64`.
+id as a little-endian unsigned 64-bit integer.
+
+`{op, id[63:56], id[55:48], id[47:40], id[39:32], id[31:24], id[23:16], id[15:8], id[7:0]}`
+
 Service ids are published in the status file. Writers are expected to resolve service names to ids by reading it.
 
 ## Quick Start
