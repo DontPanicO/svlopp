@@ -93,6 +93,7 @@ runtime generated state.
 
 svlopp maintains a status file in the runtime directory, which contains a snapshot of the current runtime
 state, one line per service.
+
 For running services:
 `<name> <id> <state> <pid>`
 
@@ -307,7 +308,7 @@ process supervision before expanding other capabilities.
 
 ## Building
 
-svlopp only builds on Linux. Make sure you have a recent Rust toolchain installed:
+svlopp only builds on Linux and requires Rust 1.88.0 or later:
 ```
 cargo build
 ```
