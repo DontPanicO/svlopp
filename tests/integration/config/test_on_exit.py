@@ -112,4 +112,15 @@ on_exit = "Restart"
     status = read_status(run_dir)
 
     assert len(lines) == 1
+
+    def has_a_been_removed():
+        try:
+            return not read_status(run_dir).has("a")
+        except FileNotFoundError:
+            return False
+
+    wait_until(has_a_been_removed, timeout=2.0)
+
+    status = read_status(run_dir)
+
     assert not status.has("a")
