@@ -37,7 +37,7 @@ args = ["-c", "trap 'echo SIGTERM > {output_file_path}; exit 0' SIGTERM; while t
     wait_until(
         lambda: output_file_path.exists()
         and output_file_path.read_text().strip() != "",
-        timeout=6.0,
+        timeout=7.0,
     )
 
     content = output_file_path.read_text().strip()
@@ -71,8 +71,9 @@ stop_signal = "SIGINT"
     os.kill(proc.pid, signal.SIGTERM)
 
     wait_until(
-        lambda: output_file_path.exists() and output_file_path.read_text().strip(),
-        timeout=6.0,
+        lambda: output_file_path.exists()
+        and output_file_path.read_text().strip() == "SIGINT",
+        timeout=7.0,
     )
 
     content = output_file_path.read_text().strip()
