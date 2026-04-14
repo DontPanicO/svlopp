@@ -302,8 +302,10 @@ configuration structure may change as new features are introduced.
 
 svlopp is still in an early stage, and several important pieces are either missing or incomplete:
 - Running svlopp as PID 1 is not currently supported
-- Subreaping support is minimal. Orphaned descendants are reaped, but no additional semantics (such
-  as attribution to services) are currently implemented
+- Orphaned descendants are reaped, but no additional semantics (such as attribution to services)
+  are currently implemented
+- svlopp does not terminate orphaned processes left behind by service processes. It only acts as a
+  subreaper, ensuring they are properly reaped
 - Logging is very limited and poorly structured, if at all
 
 These limitations are known and sometimes intentional at this stage. The focus so far has been on
