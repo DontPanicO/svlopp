@@ -4,6 +4,7 @@
 
 import os
 import signal
+from pathlib import Path
 
 from helpers.status_file import read_status
 from helpers.utils import is_zombie, wait_until, pid_exists
@@ -479,3 +480,61 @@ args = ["10"]
     assert a.pid_or_reason == f"{REASON_KILLED}(9)"
     assert not pid_exists(a_pid)
     assert pid_exists(int(b.pid_or_reason))
+
+
+def test_orphan_cleanup(tmp_path, run_dir, svlopp_proc):
+    config_path = tmp_path / CONFIG_FILE_NAME
+    script_path = tmp_path / "leaky.sh"
+    child_pids_path = tmp_path / "child_pids"
+
+    script_path.write_text(
+        f"""#!/bin/sh
+
+sleep 1000 &
+echo $! >> {child_pids_path}
+
+sleep 1000 &
+echo $! >> {child_pids_path}
+
+sleep 1000 &
+echo $! >> {child_pids_path}
+
+exit 0
+"""
+    )
+    script_path.chmod(0o755)
+
+    config_path.write_text(
+        f"""
+[services.leaky]
+command = "{script_path}"
+"""
+    )
+
+    proc = svlopp_proc(config_path)
+
+    def has_leaky_exit():
+        try:
+            status = read_status(run_dir)
+            return status.is_stopped("leaky")
+        except (FileNotFoundError, KeyError):
+            return False
+
+    wait_until(has_leaky_exit, timeout=2.0)
+
+    child_pids = [
+        int(line.strip())
+        for line in child_pids_path.read_text().splitlines()
+        if line.strip()
+    ]
+
+    assert len(child_pids) == 3
+
+    def all_children_gone():
+        return all(not Path(f"/proc/{pid}").exists() for pid in child_pids)
+
+    wait_until(all_children_gone, timeout=3.0)
+
+    assert Path(f"/proc/{proc.pid}").exists()
+    for pid in child_pids:
+        assert not Path(f"/proc/{pid}").exists()

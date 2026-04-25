@@ -295,6 +295,7 @@ configuration structure may change as new features are introduced.
 ### Not yet implemented / still thinking about
 
 - Useful logging
+- cgroups v2 for stronger orphans cleanup guarantees
 - Extend service definition
 
 ## Limitations & Known Issues
@@ -303,8 +304,8 @@ svlopp is still in an early stage, and several important pieces are either missi
 - Running svlopp as PID 1 is not currently supported
 - Orphaned descendants are reaped, but no additional semantics (such as attribution to services)
   are currently implemented
-- svlopp does not terminate orphaned processes left behind by service processes. It only acts as a
-  subreaper, ensuring they are properly reaped
+- svlopp perform a best effort cleanup of orphans by sending `SIGKILL` to the service process
+  group after the service is reaped, which is fragile as processes may escape the group
 - Logging is very limited and poorly structured, if at all
 
 These limitations are known and sometimes intentional at this stage. The focus so far has been on

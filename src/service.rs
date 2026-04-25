@@ -16,7 +16,10 @@ use std::{
 
 use rustix::{
     fs::{Mode, OFlags, open},
-    process::{Pid, Signal, WaitOptions, WaitStatus, chdir, kill_process, wait},
+    process::{
+        Pid, Signal, WaitOptions, WaitStatus, chdir, kill_process, kill_process_group, setpgid,
+        wait,
+    },
     stdio::{dup2_stderr, dup2_stdin, dup2_stdout},
 };
 use serde::Deserialize;
@@ -469,6 +472,9 @@ fn child_exec(
     if set_thread_signal_mask(sigset).is_err() {
         unsafe { libc::_exit(111) }
     }
+    if setpgid(None, None).is_err() {
+        unsafe { libc::_exit(111) }
+    }
     if let Some(ug) = svc.user_group() {
         unsafe {
             if cvt(libc::setgid(ug.gid)).is_err() {
@@ -901,6 +907,18 @@ pub(crate) fn handle_sigchld(registry: &mut ServiceRegistry) -> io::Result<()> {
                                 "reaped service '{}' that was never started",
                                 svc.name
                             );
+                            match kill_process_group(pid, Signal::KILL) {
+                                Ok(()) => {}
+                                Err(e) if e == rustix::io::Errno::SRCH => {}
+                                Err(e) => {
+                                    svlogg!(
+                                        LogLevel::Warn,
+                                        "failed to clean service '{}' orphans: {}",
+                                        svc.name,
+                                        e
+                                    );
+                                }
+                            };
                             svc.state = ServiceState::Stopped(stop_reason);
                             svlogg!(
                                 LogLevel::Info,
