@@ -295,7 +295,6 @@ configuration structure may change as new features are introduced.
 ### Not yet implemented / still thinking about
 
 - Useful logging
-- pidfd based process management
 - Extend service definition
 
 ## Limitations & Known Issues
