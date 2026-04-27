@@ -11,7 +11,7 @@ keywords = ["supervisor", "init", "process", "linux"]
 categories = ["os::linux-apis"]
 
 [dependencies]
-bitflags = "2.11.0"
+bitflags = "2.11.1"
 libc = "0.2.184"
 rustix = {version = "1.1.4", features = [
   "event",
