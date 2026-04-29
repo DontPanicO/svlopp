@@ -12,7 +12,7 @@ categories = ["os::linux-apis"]
 
 [dependencies]
 bitflags = "2.11.1"
-libc = "0.2.184"
+libc = "0.2.186"
 rustix = {version = "1.1.4", features = [
   "event",
   "process",
